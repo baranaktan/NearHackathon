@@ -29,6 +29,9 @@
   const MONO = "'Geist Mono Variable', ui-monospace, Consolas, monospace";
   const EASE = 'cubic-bezier(0.65, 0, 0.2, 1)';
   const cfg = window.__DEMO_CFG || {};
+  // The design below is in 1920x1080 output pixels; the page is recorded at a smaller CSS viewport with a device scale factor.
+  const U = 1 / (cfg.scale || 1);
+  const px = (t) => t.replace(/(\d*\.?\d+)px/g, (_, n) => `${+(n * U).toFixed(2)}px`);
 
   const ss = {
     get(k) {
@@ -60,25 +63,32 @@
     background: transparent; overflow: visible; pointer-events: none; z-index: 2147483647; display: block; color: ${BONE}; font-family: ${SANS}; }
   #__demo-root::backdrop { display: none; }
   #__demo-root * { box-sizing: border-box; }
-  .__d-cursor { position: fixed; left: 0; top: 0; width: 26px; height: 26px; transform: translate(-100px, -100px);
+  .__d-cursor { position: fixed; left: 0; top: 0; width: 34px; height: 34px; transform: translate(-100px, -100px);
     will-change: transform; filter: drop-shadow(0 2px 3px rgb(0 0 0 / .55)); transition: opacity .3s; }
-  .__d-cursor svg { display: block; }
-  .__d-ripple { position: fixed; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%;
-    border: 2px solid ${BRASS}; background: rgb(211 183 127 / .18); animation: __d-ripple .65s ${EASE} forwards; }
+  .__d-cursor svg { display: block; width: 100%; height: 100%; }
+  .__d-ripple { position: fixed; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%;
+    border: 3px solid ${BRASS}; background: rgb(211 183 127 / .18); animation: __d-ripple .65s ${EASE} forwards; }
   @keyframes __d-ripple { from { transform: scale(.3); opacity: 1 } to { transform: scale(1.35); opacity: 0 } }
-  .__d-ring { position: fixed; border-radius: 12px; border: 2px solid ${BRASS};
-    box-shadow: 0 0 0 4px rgb(211 183 127 / .16), 0 0 28px rgb(211 183 127 / .25); opacity: 0;
+  .__d-ring { position: fixed; border-radius: 16px; border: 3px solid ${BRASS};
+    box-shadow: 0 0 0 6px rgb(211 183 127 / .16), 0 0 36px rgb(211 183 127 / .25); opacity: 0;
     transition: opacity .35s ${EASE}, left .35s ${EASE}, top .35s ${EASE}, width .35s ${EASE}, height .35s ${EASE}; }
-  .__d-cap { position: fixed; left: 50%; bottom: 30px; width: max-content; max-width: min(1100px, calc(100vw - 80px));
-    transform: translate(-50%, 0); display: flex; align-items: stretch; gap: 0; border-radius: 14px; overflow: hidden;
+  .__d-cap { position: fixed; left: 50%; bottom: 36px; width: max-content; max-width: min(1560px, calc(100vw - 120px));
+    transform: translate(-50%, 0); display: flex; align-items: stretch; gap: 0; border-radius: 18px; overflow: hidden;
     background: #0e0b0a; border: 1px solid #43382f; box-shadow: 0 24px 60px -18px rgb(0 0 0 / .85), 0 0 0 1px rgb(0 0 0 / .4);
     opacity: 0; transition: opacity .45s ${EASE}, transform .45s ${EASE}, top .45s ${EASE}, bottom .45s ${EASE}, left .45s ${EASE}; }
   .__d-cap.__on { opacity: 1; }
-  .__d-cap .__bar { width: 6px; background: linear-gradient(180deg, #ac142d, #7a0b1d); flex: none; }
-  .__d-cap .__body { padding: 16px 26px 18px 22px; }
-  .__d-cap .__label { font: 600 14px/1 ${MONO}; letter-spacing: .14em; text-transform: uppercase; color: ${CRIMSON}; margin-bottom: 9px; }
+  .__d-cap .__bar { width: 9px; background: linear-gradient(180deg, #ac142d, #7a0b1d); flex: none; }
+  .__d-cap .__body { padding: 20px 34px 24px 28px; }
+  .__d-cap .__label { font: 600 20px/1 ${MONO}; letter-spacing: .14em; text-transform: uppercase; color: ${CRIMSON}; margin-bottom: 12px; }
   .__d-cap .__label span { color: ${BRASS}; }
-  .__d-cap .__text { font: 500 29px/1.3 ${SANS}; letter-spacing: -.005em; color: ${BONE}; max-width: 1040px; text-wrap: pretty; }
+  .__d-cap .__text { font: 500 38px/1.28 ${SANS}; letter-spacing: -.005em; color: ${BONE}; max-width: 1480px; text-wrap: pretty; }
+  .__d-role { position: fixed; top: 26px; right: 32px; display: flex; align-items: center; gap: 14px; padding: 13px 24px 13px 20px; border-radius: 999px;
+    background: #0e0b0a; border: 2px solid ${BRASS}; color: ${BONE}; font: 600 26px/1 ${SANS}; letter-spacing: .01em;
+    box-shadow: 0 14px 36px -12px rgb(0 0 0 / .85); opacity: 0; transform: translateY(-10px); transition: opacity .35s ${EASE}, transform .35s ${EASE}; }
+  .__d-role.__on { opacity: 1; transform: none; }
+  .__d-role i { width: 14px; height: 14px; border-radius: 50%; background: ${CRIMSON}; flex: none; }
+  .__d-role.__dao i { background: ${BRASS}; }
+  .__d-role span { font-weight: 400; color: ${MUTED}; }
   .__d-card { position: fixed; inset: 0; display: grid; place-items: center; overflow: hidden; }
   .__d-card .__panel { position: absolute; top: 0; bottom: 0; width: 50.5%; ${VELVET} transition: transform 1.25s ${EASE}; }
   .__d-card .__panel.__l { left: 0; transform-origin: 0 50%; box-shadow: 10px 0 30px -12px rgb(0 0 0 / .7); }
@@ -106,11 +116,12 @@
   let cursor;
   let ring;
   let cap;
+  let roleChip;
   let focusEl = null;
   let ringEl = null;
   let raf = 0;
 
-  const pos = ss.get('cursor') || { x: 960, y: 560 };
+  const pos = ss.get('cursor') || { x: 960 * U, y: 560 * U };
 
   function el(tag, cls, html) {
     const e = document.createElement(tag);
@@ -132,7 +143,7 @@
   function mount() {
     if (root && root.isConnected) return;
     const style = el('style');
-    style.textContent = css;
+    style.textContent = px(css);
     (document.head || document.documentElement).appendChild(style);
     root = el('div');
     root.id = '__demo-root';
@@ -145,11 +156,14 @@
       '__d-cursor',
       `<svg width="26" height="26" viewBox="0 0 26 26"><path d="M4 2.5 L4 21 L9 16.6 L12.4 24 L15.9 22.4 L12.6 15.2 L19.5 15.2 Z" fill="${BONE}" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
     );
-    root.append(ring, cap, cursor);
+    roleChip = el('div', '__d-role');
+    root.append(ring, cap, roleChip, cursor);
     document.documentElement.appendChild(root);
     raise();
     moveCursor(pos.x, pos.y);
     if (cfg.hideCursorUntilMove) cursor.style.opacity = '0';
+    const savedRole = ss.get('role');
+    if (savedRole) setRole(savedRole.who, savedRole.sub, savedRole.kind);
     const saved = ss.get('caption');
     if (saved && saved.text) caption(saved.label, saved.text, true);
     if (ss.get('title') === 'showing' || (cfg.titleOnFirstLoad && !ss.get('started'))) titleCard();
@@ -162,7 +176,7 @@
 
     // Extra room under the content so nothing has to sit behind the caption.
     const spacer = el('style');
-    spacer.textContent = '#app-main::after, main#main::after { content: ""; display: block; height: 150px; }';
+    spacer.textContent = `#app-main::after, main#main::after { content: ""; display: block; height: ${Math.round(210 * U)}px; }`;
     document.head.appendChild(spacer);
 
     tick();
@@ -171,7 +185,7 @@
   function moveCursor(x, y) {
     pos.x = x;
     pos.y = y;
-    if (cursor) cursor.style.transform = `translate(${x - 4}px, ${y - 2}px)`;
+    if (cursor) cursor.style.transform = `translate(${x - 4 * U}px, ${y - 2 * U}px)`;
   }
 
   window.addEventListener(
@@ -196,7 +210,7 @@
     true,
   );
 
-  const intersects = (a, b, pad = 14) => !(a.right + pad <= b.left || b.right + pad <= a.left || a.bottom + pad <= b.top || b.bottom + pad <= a.top);
+  const intersects = (a, b, pad = 20 * U) => !(a.right + pad <= b.left || b.right + pad <= a.left || a.bottom + pad <= b.top || b.bottom + pad <= a.top);
 
   function obstacles() {
     const out = [];
@@ -222,13 +236,14 @@
     const vh = window.innerHeight;
     const w = cap.offsetWidth;
     const h = cap.offsetHeight;
+    const M = 36 * U;
     const slots = [
-      { name: 'bottom', rect: new DOMRect((vw - w) / 2, vh - 30 - h, w, h) },
-      { name: 'top', rect: new DOMRect((vw - w) / 2, 30, w, h) },
+      { name: 'bottom', rect: new DOMRect((vw - w) / 2, vh - M - h, w, h) },
+      { name: 'top', rect: new DOMRect((vw - w) / 2, M + 90 * U, w, h) },
     ];
     for (const o of obs) {
-      if (o.left > 700) slots.push({ name: 'left', rect: new DOMRect(30, vh - 30 - h, Math.min(w, o.left - 70), h), maxW: o.left - 70 });
-      if (vw - o.right > 700) slots.push({ name: 'right', rect: new DOMRect(o.right + 40, vh - 30 - h, Math.min(w, vw - o.right - 70), h), maxW: vw - o.right - 70, x: o.right + 40 });
+      if (o.left > 900 * U) slots.push({ name: 'left', rect: new DOMRect(M, vh - M - h, Math.min(w, o.left - 80 * U), h), maxW: o.left - 80 * U });
+      if (vw - o.right > 900 * U) slots.push({ name: 'right', rect: new DOMRect(o.right + 40 * U, vh - M - h, Math.min(w, vw - o.right - 80 * U), h), maxW: vw - o.right - 80 * U, x: o.right + 40 * U });
     }
     const pick = slots.find((s) => obs.every((o) => !intersects(s.rect, o))) || slots[0];
     if (cap.dataset.slot === pick.name && cap.dataset.maxw === String(pick.maxW || '')) return;
@@ -241,16 +256,16 @@
       s.maxWidth = '';
       if (pick.name === 'bottom') {
         s.top = '';
-        s.bottom = '30px';
+        s.bottom = M + 'px';
       } else {
         s.bottom = '';
-        s.top = '30px';
+        s.top = M + 90 * U + 'px';
       }
     } else {
       s.transform = 'none';
       s.top = '';
-      s.bottom = '30px';
-      s.left = (pick.name === 'left' ? 30 : pick.x) + 'px';
+      s.bottom = M + 'px';
+      s.left = (pick.name === 'left' ? M : pick.x) + 'px';
       s.maxWidth = pick.maxW + 'px';
     }
   }
@@ -262,7 +277,7 @@
       return;
     }
     const r = ringEl.getBoundingClientRect();
-    const p = 8;
+    const p = 10 * U;
     ring.style.left = r.left - p + 'px';
     ring.style.top = r.top - p + 'px';
     ring.style.width = r.width + p * 2 + 'px';
@@ -298,6 +313,17 @@
     }
     cap.classList.remove('__on');
     setTimeout(apply, 260);
+  }
+
+  function setRole(who, sub, kind) {
+    if (!roleChip) return;
+    ss.set('role', who ? { who, sub, kind } : null);
+    if (!who) {
+      roleChip.classList.remove('__on');
+      return;
+    }
+    roleChip.className = '__d-role __on' + (kind === 'dao' ? ' __dao' : '');
+    roleChip.innerHTML = `<i></i>${who}${sub ? ` <span>· ${sub}</span>` : ''}`;
   }
 
   function clearCaption() {
@@ -345,17 +371,18 @@
   function endCard(repo) {
     if (!root) return;
     clearCaption();
+    setRole(null);
     const card = cardShell();
     const [l, r] = [card.querySelector('.__l'), card.querySelector('.__r')];
     const stage = card.querySelector('.__stage');
     l.style.transform = r.style.transform = 'scaleX(0)';
     stage.style.opacity = '0';
     stage.innerHTML = `
-      <div class="__eyebrow">Built at NEAR HACKATHON <i></i> Apache-2.0</div>
       <div class="__title">${logo()}<span>Perde</span></div>
-      <p class="__sub">Private payments on NEAR. <b>One meta-address; every payment lands in a fresh account only you can find.</b></p>
-      <div class="__url"><span>github.com/</span>${repo.replace(/^github\.com\//, '')}</div>
-      <div class="__meta"><span class="__chip __accent">Testnet prototype · unaudited</span><span class="__chip">No pool · no relayer · no indexer · no backend</span></div>`;
+      <p class="__sub">Private payments on NEAR</p>
+      <div class="__url">${repo}</div>
+      <div class="__meta"><span class="__chip __accent">Built at NEAR HACKATHON</span></div>
+      <div class="__meta"><span class="__chip">Testnet prototype · unaudited · amounts stay public</span></div>`;
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
         l.style.transform = r.style.transform = 'scaleX(1)';
@@ -396,7 +423,7 @@
   }
 
   /** Scroll so `elem` sits in the safe area (below `top`, above the caption zone). */
-  function scrollIntoSafe(elem, { top = 110, bottomReserve = 200, align = 'auto', ms = 900 } = {}) {
+  function scrollIntoSafe(elem, { top = 96 * U, bottomReserve = 250 * U, align = 'auto', ms = 900 } = {}) {
     if (!elem) return Promise.resolve();
     const r = elem.getBoundingClientRect();
     const vh = window.innerHeight;
@@ -415,6 +442,7 @@
   window.__demo = {
     caption,
     clearCaption,
+    setRole,
     titleCard,
     openTitle,
     endCard,

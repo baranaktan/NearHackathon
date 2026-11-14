@@ -13,7 +13,7 @@
  * scripts/video/.build/ (raw take, markers, review frames; gitignored).
  *
  * Everything on screen is the real app. The recorder only adds a presentation
- * layer (cursor, captions, title and end cards; lib/overlay.js). The wallet is
+ * layer (cursor, captions, role chip, title and end cards; lib/overlay.js). The wallet is
  * the throwaway testnet account in .cache/demo-account.json, injected into the
  * app's storage the way apps/web/scripts/e2e-smoke.mjs does it; its key is
  * never printed, and the recovery phrase stays behind the app's curtain.
@@ -27,10 +27,12 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { serveStatic } from './lib/serve.mjs';
 import {
   REPO,
+  repoRoot,
   T,
   buildApp,
   buildDir,
@@ -53,50 +55,41 @@ import {
 const args = process.argv.slice(2);
 const DRY = args.includes('--dry');
 const HEADED = args.includes('--headed');
-const VIEW = { width: 1920, height: 1080 };
+// Output 1920x1080; the page is laid out at 1024x576 CSS px and rendered at 1.875x, so the
+// app's own text is ~1.9x larger than a plain 1080p recording (body ~28 px in the output).
+// 1024 is Tailwind's lg breakpoint: the desktop sidebar layout still shows.
+const CSS_VIEW = { width: 1024, height: 576 };
+const SCALE = 1.875;
+const OUT = { width: 1920, height: 1080 };
 
 /* ------------------------------------------------------------------------ */
-/* Captions: DEMO.md's "Say" column, tightened (≤ ~110 chars, ≤ 2 lines).    */
+/* Captions: DEMO.md's "Say / caption" column, tightened (<= ~90 chars/line). */
 /* ------------------------------------------------------------------------ */
 
 const S = {
   1: '1 · The problem',
-  2: '2 · Why NEAR',
-  3: '3 · Receive',
-  4: '4 · Send by name',
+  2: '2 · Receive',
+  3: '3 · DAO payout',
+  4: '4 · Approve',
   5: '5 · Inbox',
-  6: '6 · Claim',
-  7: '7 · DAO payout',
-  8: '8 · Invoice, any chain',
-  9: '9 · Payroll & audit',
-  10: '10 · Honest limits',
+  6: '6 · Pay onward',
+  7: '7 · Why NEAR',
 };
+const ALICE = ['Alice', 'contributor'];
+const DAO = ['DAO member', ''];
 const SAY = {
-  problem: 'On NEAR, every payment names its recipient: who was paid, how much, and everything else they hold.',
-  perde: 'With Perde, the same payment goes to a brand-new account that nobody can link to Alice.',
-  near1: 'A NEAR implicit account is just an ed25519 public key. So a stealth key already is a NEAR account.',
-  near2: 'No pool holding funds, no relayer, no indexer, no backend: a static site talking to public testnet RPC.',
-  live: 'From here on: the real app, signing real NEAR testnet transactions in this browser.',
-  identity: 'Alice creates an identity once. Her 12-word recovery phrase stays behind the curtain.',
-  meta: 'She gets one meta-address to share, as text, link or QR code. It never appears on-chain.',
-  register: 'She registers it under her NEAR name, so people can simply pay that name.',
-  sendName: 'A payer types Alice’s NEAR name. (Here the demo wallet pays the name it just registered.)',
-  review: 'The payer’s browser derives a one-time account for Alice. It has never existed on-chain before.',
-  sending: 'One contract call records an announcement and moves the funds, atomically.',
-  chainSent: 'What the chain shows: a transfer to a fresh 64-hex account. Alice’s name appears nowhere.',
-  scan: 'Alice’s browser scans the public announcements with her view key. Only she can recognise this one.',
-  chainInbox: 'The chain view: on top, what any observer can read on-chain. Below, what only Alice knows.',
-  claim: 'She claims it. The stealth account signs for itself with a key derived in her browser.',
-  claimed: 'The claim is signed by the 64-hex stealth account itself, which pays its own gas. No relayer.',
-  dao: 'The real use: a DAO treasury pays a contributor through a normal SputnikDAO proposal.',
-  proposal: 'The vote and the amount are public, but the proposal names no recipient, only a fresh account.',
-  executed: 'Approved and executed in one vote. The contributor finds the payout in their own inbox.',
-  invoice: 'An invoice is a one-time account with no announcement at all, so an exchange or another chain can pay it.',
-  quote: 'A live NEAR Intents quote: pay in USDC on Ethereum, the invoice receives NEAR. Dry-run preview, not executed.',
-  payroll: 'Payroll: several private payments in one NEAR transaction.',
-  audit: 'An accountant gets a viewing key: they see every incoming payment and cannot spend any of it.',
-  limits: 'Perde hides who was paid. Amounts, senders and timing stay public. Unaudited testnet prototype.',
-  real: 'Everything you saw was real NEAR testnet transactions.',
+  problem: 'A DAO pays Alice. Everyone sees she was paid, how much, and what else she holds.',
+  perde: 'With Perde the same payment lands in a fresh account nobody can link to her.',
+  identity: 'Alice creates an identity once. Her recovery phrase stays behind the curtain.',
+  meta: 'She shares one meta-address. She needs no account for this.',
+  dao: 'The DAO proposes a payout: an ordinary SputnikDAO proposal. Amount, fresh account, no recipient.',
+  approve: 'The DAO votes in public and the payment executes in the same transaction.',
+  scan: 'Alice’s browser scans public announcements with her view key. Only she recognises this one.',
+  chain: 'Above: what anyone can read. Below: what only Alice knows.',
+  onward: 'She pays someone straight from that account. It signs for itself and pays its own gas.',
+  onwardDone: 'Paid onward. Her named account never appears anywhere.',
+  near: 'Why NEAR: an implicit account is an ed25519 key. A stealth key already is an account.',
+  near2: 'No pool, no relayer, no indexer, no backend.',
 };
 
 /* ------------------------------------------------------------------------ */
@@ -212,6 +205,8 @@ async function typeInto(locator, text, { delay = 48 } = {}) {
 const cardOf = (loc) => loc.locator('xpath=ancestor::section[contains(@class,"rounded-xl")][1]');
 const nav = (name) => page.getByRole('navigation', { name: 'App' }).getByRole('link', { name, exact: true }).first();
 async function go(name) {
+  await nav(name).scrollIntoViewIfNeeded(); // the sidebar list scrolls in the short viewport
+  await sleep(250);
   await click(nav(name), { scroll: false });
   await page.waitForTimeout(250);
   await demo(() => window.scrollTo(0, 0));
@@ -238,11 +233,26 @@ async function txHref(locator) {
 /* The take                                                                  */
 /* ------------------------------------------------------------------------ */
 
-async function take(base, account) {
-  const { accountId } = account;
+const role = (who, sub = '', kind = '') => demo(([w, s, k]) => window.__demo.setRole(w, s, k), [who, sub, kind]);
+const asAlice = () => role(ALICE[0], ALICE[1], 'alice');
+const asDao = () => role(DAO[0], DAO[1], 'dao');
+const noRole = () => role(null);
+/** Paste (not type) a long value, the way a person would. */
+async function pasteInto(locator, text) {
+  await click(locator, { after: 120 });
+  await page.keyboard.press('Control+A');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.insertText(text);
+  await sleep(250);
+}
 
-  // ---- Title card, then 1 · The problem -------------------------------------
-  await step('title + landing', async () => {
+async function take(base, account) {
+  // A second, throwaway identity ("someone Alice pays"), generated off-camera. Only its public meta-address is used.
+  const core = await import(pathToFileURL(join(repoRoot, 'packages', 'core', 'dist', 'index.js')).href);
+  const bobMeta = core.encodeMetaAddress(core.toMetaAddress(core.keysFromMnemonic(core.generateMnemonic())));
+
+  // ---- 0 · Title card ---------------------------------------------------------
+  await step('0 title', async () => {
     await page.goto(`${base}#/`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: /Pay anyone/ }).waitFor();
     await demo(() => document.fonts.ready.then(() => true));
@@ -250,339 +260,188 @@ async function take(base, account) {
     await demo(() => Promise.all(['400 40px "Instrument Serif"', '500 20px "Geist Variable"', '500 20px "Geist Mono Variable"'].map((f) => document.fonts.load(f))));
     await hold(400);
     mark('title', 'Title card');
-    await hold(2800);
+    await hold(2200);
     await demo(() => window.__demo.openTitle());
-    await hold(1200);
+    await hold(900);
   });
 
+  // ---- 1 · The problem (landing, Without -> With Perde) -------------------------
   await step('1 problem', async () => {
     mark('s1', S[1]);
     const exhibit = page.locator('figure[aria-labelledby="exhibit-caption"]');
     await caption(S[1], SAY.problem);
+    await reveal(exhibit, { align: 'top', top: 50 });
+    await hold(500);
     const row = exhibit.locator('tr', { hasText: 'alice.near' }).first();
     await pointAt(row.or(exhibit.getByText('alice.near').first()).first(), { scroll: false });
     await ring(exhibit.locator('[role=tabpanel]'));
-    await hold(3300);
+    await hold(2600);
     await ring(null);
     await click(page.getByRole('tab', { name: 'With Perde' }), { scroll: false });
     await caption(S[1], SAY.perde);
-    await hold(1300);
+    await hold(900);
     const alice = exhibit.getByText(/Behind the curtain/).locator('xpath=ancestor::div[contains(@class,"rounded-xl")][1]');
     await pointAt(alice, { scroll: false });
     await ring(alice);
-    await hold(2800);
+    await hold(2200);
     await ring(null);
   });
 
-  // ---- 2 · Why NEAR ---------------------------------------------------------
-  await step('2 why near', async () => {
+  // ---- 2 · Receive (Alice) ---------------------------------------------------------
+  let aliceMeta = null;
+  await step('2 receive', async () => {
     mark('s2', S[2]);
-    await caption(S[2], SAY.near1);
-    await click(page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Why NEAR' }).or(page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Why NEAR' })).first(), { scroll: false });
-    await page.waitForFunction(() => Math.abs(document.getElementById('why-near').getBoundingClientRect().top) < 140, null, { timeout: 8000 }).catch(() => {});
-    await hold(900);
-    const implicit = page.locator('#why-near dl > div').first();
-    await pointAt(implicit, { scroll: false, dx: -300 });
-    await hold(2400);
-    await caption(S[2], SAY.near2);
-    await demo(() => window.__demo.scrollToY(window.scrollY + 260, 1000));
-    await hold(2700);
-  });
-
-  // ---- 3 · Receive ----------------------------------------------------------
-  await step('3 guided demo', async () => {
-    mark('s3', S[3]);
-    await demo(() => window.__demo.scrollToY(0, 1200));
-    await hold(200);
-    await click(page.getByRole('link', { name: 'See it work in a minute' }).first(), { scroll: false });
-    await page.getByRole('heading', { name: 'See it work in a minute' }).waitFor();
-    await caption(S[3], SAY.live);
-    await hold(1400);
-  });
-
-  await step('3 identity', async () => {
+    await caption(S[2], SAY.identity);
+    await demo(() => window.__demo.scrollToY(0, 600));
+    await click(page.getByRole('link', { name: 'Open app' }).first(), { scroll: false });
+    await asAlice();
     await go('Receive');
+    await caption(S[2], SAY.identity);
     await click(page.getByRole('button', { name: 'Create identity' }));
     const curtain = page.getByRole('button', { name: 'Reveal recovery phrase' });
     await curtain.waitFor();
-    await caption(S[3], SAY.identity);
     const phraseBox = curtain.locator('xpath=ancestor::div[contains(@class,"isolate")][1]');
-    await pointAt(curtain, { dy: 40 });
+    await pointAt(curtain, { dy: 30 });
     await ring(phraseBox);
-    await hold(2200);
+    await hold(1500);
     await ring(null);
     await click(page.getByLabel('I have stored these words somewhere safe and offline.'));
     await click(page.getByRole('button', { name: 'Continue' }));
     await page.getByText('Meta-address', { exact: true }).waitFor();
-    await caption(S[3], SAY.meta);
+    await caption(S[2], SAY.meta);
     const metaCard = cardOf(page.getByText('Meta-address', { exact: true }));
-    await pointAt(page.getByRole('img', { name: /QR code/ }).or(page.locator('svg[aria-label*="QR"]')).first(), { scroll: false }).catch(() => pointAt(metaCard, { scroll: false }));
+    aliceMeta = (await page.locator('p', { hasText: /^perde:/ }).first().innerText()).replace(/\s+/g, '');
+    if (!/^perde:[A-Za-z0-9]+$/.test(aliceMeta)) throw new Error('could not read Alice’s meta-address');
+    await pointAt(metaCard, { scroll: false });
     await ring(metaCard);
-    await hold(2500);
+    await hold(2400);
     await ring(null);
   });
 
-  await step('3 register', async () => {
-    await caption(S[3], SAY.register);
-    const card = cardOf(page.getByRole('heading', { name: 'Pay me at a NEAR name' }));
-    await reveal(card, { align: 'center' });
-    const btn = page.getByRole('button', { name: /^(Register name|Replace with this meta-address)$/ });
-    await btn.waitFor({ timeout: 30_000 });
-    if (DRY) {
-      await pointAt(btn);
-      await hold(1500);
-      return;
-    }
-    await click(btn);
-    await waitResult(page.getByText('Registered', { exact: true }), { timeout: T.tx });
-    await ring(card);
-    await hold(1400);
-    await ring(null);
-  });
-
-  // ---- 4 · Send by name -----------------------------------------------------
-  let stealthSent = null;
-  await step('4 send', async () => {
-    mark('s4', S[4]);
-    await go('Send');
-    await caption(S[4], SAY.sendName);
-    // A dry run registers nothing, so it pays its own meta-address instead of the name.
-    if (DRY) await click(page.getByRole('button', { name: 'Pay myself' }));
-    else await typeInto(page.getByLabel('Recipient'), accountId, { delay: 42 });
-    await page.getByText(/Your own meta-address|Registered meta-address found/).waitFor({ timeout: 30_000 });
-    await hold(500);
-    await typeInto(page.getByLabel('Amount'), '0.05', { delay: 110 });
-    await hold(400);
-    await click(page.getByRole('button', { name: 'Review payment' }));
-    await page.getByRole('heading', { name: 'Review' }).waitFor();
-    await caption(S[4], SAY.review);
-    const landsIn = page.locator('dl > div', { hasText: 'Lands in' }).first();
-    await pointAt(landsIn, { dx: 60 });
-    await ring(landsIn);
-    stealthSent = await landsIn.locator('[title]').evaluateAll((els) => els.map((e) => e.getAttribute('title')).find((t) => /^[0-9a-f]{64}$/.test(t ?? '')) ?? null);
-    await hold(3000);
-    await ring(null);
-    if (DRY) {
-      await pointAt(page.getByRole('button', { name: 'Confirm and send' }));
-      await hold(1000);
-      await click(page.getByRole('button', { name: 'Back', exact: true }));
-      return;
-    }
-    await click(page.getByRole('button', { name: 'Confirm and send' }));
-    await caption(S[4], SAY.sending);
-    const progress = cardOf(page.getByRole('heading', { name: 'Sending' }));
-    await ring(progress).catch(() => {});
-    await waitResult(page.getByRole('heading', { name: 'Paid. The curtain stays closed.' }), { timeout: T.tx });
-    await ring(null);
-    links.push({ label: 'send', href: await txHref(page.getByRole('link', { name: /View transaction/ })) });
-    await hold(1100);
-  });
-
-  await step('4 chain view (sent)', async () => {
-    if (DRY) return;
-    await click(page.getByRole('button', { name: 'What the chain sees' }));
-    const sheet = page.getByRole('dialog');
-    await sheet.getByText(/Announcement #\d+/).first().waitFor({ timeout: 30_000 });
-    await caption(S[4], SAY.chainSent);
-    await hold(300);
-    await pointAt(sheet.getByText(/Announcement #\d+/).first(), { scroll: false });
-    await hold(3200);
-    await page.keyboard.press('Escape');
-    await hold(400);
-  });
-
-  // ---- 5 · Inbox --------------------------------------------------------------
-  let row = null;
-  await step('5 inbox', async () => {
-    mark('s5', S[5]);
-    await go('Inbox');
-    await caption(S[5], SAY.scan);
-    const progress = page.getByRole('progressbar', { name: 'Scan progress' }).locator('xpath=..');
-    await pointAt(progress, { scroll: false });
-    await page.getByText(/announcements checked/).waitFor({ timeout: T.scan });
-    if (DRY) {
-      await hold(2000);
-      return;
-    }
-    row = stealthSent ? page.locator('li', { has: page.locator(`[title="${stealthSent}"]`) }).first() : page.locator('li', { has: page.getByRole('button', { name: 'Claim to…' }) }).first();
-    await row.getByRole('button', { name: 'Claim to…' }).waitFor({ timeout: 30_000 });
-    await pointAt(row, { dx: -200 });
-    await ring(row);
-    await hold(2000);
-    await ring(null);
-  });
-
-  // ---- 6 · Claim ----------------------------------------------------------------
-  await step('6 claim', async () => {
-    if (DRY) return;
-    mark('s6', S[6]);
-    await caption(S[6], SAY.claim);
-    await click(row.getByRole('button', { name: 'Claim to…' }));
-    const dlg = page.getByRole('dialog');
-    await dlg.getByText('Destination receives about').waitFor({ timeout: 30_000 });
-    await hold(2000);
-    await click(dlg.getByRole('button', { name: 'Claim', exact: true }));
-    await waitResult(row.getByText(/^Claimed .* to /), { timeout: T.tx, error: row.locator('[role=alert]') });
-    links.push({ label: 'claim', href: await txHref(row.getByRole('link', { name: /Claim tx/ })) });
-    await ring(row);
-    await hold(700);
-    await ring(null);
-    await click(row.getByRole('button', { name: 'Chain view' }));
-    const sheet = page.getByRole('dialog');
-    const claimBlock = sheet.getByText('Claim transaction').first();
-    await claimBlock.waitFor({ timeout: 30_000 });
-    await caption(S[6], SAY.chainInbox);
-    await hold(2800);
-    await caption(S[6], SAY.claimed);
-    await demo(() => {
-      const d = document.querySelector('dialog[open]');
-      const t = [...d.querySelectorAll('*')].find((e) => e.childElementCount === 0 && e.textContent === 'Claim transaction');
-      const box = d.querySelector('.overflow-y-auto') || d;
-      if (t) t.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      return !!box;
-    });
-    await hold(900);
-    await pointAt(claimBlock, { scroll: false });
-    await hold(3000);
-    await page.keyboard.press('Escape');
-    await hold(400);
-  });
-
-  // ---- 7 · DAO payout ---------------------------------------------------------------
+  // ---- 3 · DAO payout: propose (the DAO) ------------------------------------------------
   let daoStealth = null;
-  await step('7 dao', async () => {
-    mark('s7', S[7]);
+  await step('3 dao propose', async () => {
+    mark('s3', S[3]);
+    await asDao();
     await go('DAO payout');
-    await caption(S[7], SAY.dao);
     await page.getByText(/proposals so far/).waitFor({ timeout: 30_000 });
+    await caption(S[3], SAY.dao);
     const propose = page.getByRole('button', { name: 'Propose payout' });
-    await pointAt(page.getByRole('heading', { name: '1 · Propose a payout' }));
-    await hold(1200);
+    await reveal(page.getByRole('heading', { name: '1 · Propose a payout' }), { align: 'top', top: 50 });
+    await pasteInto(page.getByLabel('Contributor'), aliceMeta);
+    await typeInto(page.getByLabel('Amount'), '0.1', { delay: 110 });
+    await hold(500);
     if (DRY) {
       await pointAt(propose);
-      await hold(1000);
+      await hold(800);
       return;
     }
     await click(propose);
     const approve = page.getByRole('button', { name: 'Approve & execute' });
     await waitResult(approve, { timeout: T.tx });
     links.push({ label: 'dao proposal', href: await txHref(page.getByRole('link', { name: /Proposed in/ })) });
-    await caption(S[7], SAY.proposal);
     const proposal = cardOf(page.getByRole('heading', { name: '2 · Approve & execute' })).locator('dl').first();
-    await reveal(proposal, { align: 'center' });
+    await reveal(proposal, { align: 'top', top: 60 });
     await pointAt(proposal.locator('div', { hasText: 'stealth_account' }).last(), { scroll: false });
     await ring(proposal);
-    await hold(3400);
+    await hold(3200);
     await ring(null);
-    await click(approve);
+  });
+
+  // ---- 4 · Approve & execute ----------------------------------------------------------------
+  await step('4 dao approve', async () => {
+    if (DRY) return;
+    mark('s4', S[4]);
+    await caption(S[4], SAY.approve);
+    await click(page.getByRole('button', { name: 'Approve & execute' }));
     await waitResult(page.getByText('Executed: the DAO paid a fresh account.'), { timeout: T.tx });
     links.push({ label: 'dao vote', href: await txHref(page.getByRole('link', { name: /Vote transaction/ })) });
     const done = page.getByText('Executed: the DAO paid a fresh account.').locator('xpath=ancestor::div[contains(@class,"rounded-lg")][1]');
     daoStealth = await done.locator('[title]').evaluateAll((els) => els.map((e) => e.getAttribute('title')).find((t) => /^[0-9a-f]{64}$/.test(t ?? '')) ?? null);
-    await caption(S[7], SAY.executed);
-    await reveal(done);
+    await reveal(done, { align: 'center' });
     await ring(done);
-    await hold(1100);
+    await hold(1800);
     await ring(null);
-    await click(page.getByRole('link', { name: 'Open my Inbox' }));
+  });
+
+  // ---- 5 · Inbox (Alice) -------------------------------------------------------------------------
+  let row = null;
+  await step('5 inbox', async () => {
+    mark('s5', S[5]);
+    await asAlice();
+    await go('Inbox');
+    await caption(S[5], SAY.scan);
+    const progress = page.getByRole('progressbar', { name: 'Scan progress' }).locator('xpath=..');
+    await pointAt(progress, { scroll: false });
     await page.getByText(/announcements checked/).waitFor({ timeout: T.scan });
-    const daoRow = daoStealth ? page.locator('li', { has: page.locator(`[title="${daoStealth}"]`) }).first() : page.locator('li').first();
-    await daoRow.waitFor({ timeout: 30_000 });
-    await pointAt(daoRow, { dx: -200 });
-    await ring(daoRow);
-    await hold(1900);
-    await ring(null);
-  });
-
-  // ---- 8 · Invoice + any chain --------------------------------------------------------
-  await step('8 invoice', async () => {
-    mark('s8', S[8]);
-    await go('Invoice');
-    await typeInto(page.getByLabel(/^Amount/), '0.5', { delay: 120 });
-    await typeInto(page.getByLabel(/^Note/), 'Design work, November', { delay: 38 });
-    await click(page.getByRole('button', { name: 'Create invoice' }));
-    await page.getByText(/^Invoice #\d+$/).first().waitFor();
-    await caption(S[8], SAY.invoice);
-    const pay = cardOf(page.getByText('Pay to this one-time account'));
-    await reveal(pay.or(page.getByRole('img', { name: /QR/ })).first(), { align: 'center' }).catch(() => {});
-    await pointAt(page.locator('[title*="#/pay?to="]').first(), { scroll: false }).catch(() => {});
-    await hold(2800);
-  });
-
-  await step('8 quote', async () => {
-    const panel = cardOf(page.getByRole('heading', { name: 'Pay from any chain' }));
-    await reveal(panel, { align: 'top', top: 90 });
-    const combo = page.getByRole('combobox');
-    await combo.waitFor({ timeout: 30_000 });
-    await typeInto(combo, 'USDC eth', { delay: 70 });
-    const opt = page.getByRole('option', { name: /USDC.*Ethereum/ }).first();
-    await opt.waitFor({ timeout: 10_000 });
-    await hold(500);
-    await click(opt, { scroll: false });
-    await hold(400);
-    await click(panel.getByRole('button', { name: 'Get quote' }));
-    await caption(S[8], SAY.quote);
-    await waitResult(page.getByText('Payer sends about'), { timeout: T.quote });
-    const result = page.getByText('Payer sends about').locator('xpath=ancestor::div[contains(@class,"rounded-lg")][1]');
-    await reveal(result);
-    await pointAt(result, { scroll: false, dx: -150 });
-    await ring(result);
-    await hold(3500);
-    await ring(null);
-  });
-
-  // ---- 9 · Payroll + audit ----------------------------------------------------------------
-  await step('9 payroll', async () => {
-    mark('s9', S[9]);
-    await go('Payroll');
-    await caption(S[9], SAY.payroll);
-    await click(page.getByRole('button', { name: 'Load sample' }));
-    await page.getByText('2 ready').waitFor({ timeout: 20_000 });
-    await hold(800);
-    await click(page.getByRole('button', { name: 'Review batch' }));
-    const send = page.getByRole('button', { name: 'Send 2 payments' });
-    await send.waitFor();
     if (DRY) {
-      await pointAt(send);
-      await hold(1000);
+      await hold(1500);
       return;
     }
-    await click(send);
-    await waitResult(page.getByText('2 of 2 paid in one transaction.'), { timeout: T.tx });
-    links.push({ label: 'payroll', href: await txHref(page.getByRole('link', { name: /View transaction/ })) });
-    const done = page.getByText('2 of 2 paid in one transaction.');
-    await pointAt(done);
-    await hold(1200);
+    row = daoStealth ? page.locator('li', { has: page.locator(`[title="${daoStealth}"]`) }).first() : page.locator('li').first();
+    await row.getByRole('button', { name: 'Pay someone from here' }).waitFor({ timeout: 45_000 });
+    await reveal(row, { align: 'top', top: 90 });
+    await pointAt(row, { scroll: false, dx: -120 });
+    await ring(row);
+    await hold(1800);
+    await ring(null);
+    await caption(S[5], SAY.chain);
+    await click(row.getByRole('button', { name: 'Chain view' }));
+    const sheet = page.getByRole('dialog');
+    await sheet.getByText(/Announcement #\d+/).first().waitFor({ timeout: 30_000 });
+    await hold(300);
+    await pointAt(sheet.getByText(/Announcement #\d+/).first(), { scroll: false });
+    await hold(3400);
+    await page.keyboard.press('Escape');
+    await hold(400);
   });
 
-  await step('9 audit', async () => {
-    await go('Audit');
-    await caption(S[9], SAY.audit);
-    await click(page.getByRole('button', { name: 'Use my viewing key' }));
-    await hold(500);
-    await click(page.getByRole('button', { name: 'Open read-only view' }));
-    await page.getByText(/payments · received/).waitFor({ timeout: T.scan });
-    const table = cardOf(page.getByText('Incoming payments visible to this viewing key'));
-    await reveal(table, { align: 'top', top: 90, timeout: 5000 }).catch(() => {});
-    await pointAt(table, { scroll: false, dy: -40 }).catch(() => {});
-    await hold(3300);
+  // ---- 6 · Pay onward ------------------------------------------------------------------------------
+  await step('6 pay onward', async () => {
+    if (DRY) return;
+    mark('s6', S[6]);
+    await caption(S[6], SAY.onward);
+    await click(row.getByRole('button', { name: 'Pay someone from here' }));
+    const dlg = page.getByRole('dialog');
+    await dlg.getByLabel('Recipient').waitFor({ timeout: 30_000 });
+    await pasteInto(dlg.getByLabel('Recipient'), bobMeta);
+    await dlg.getByText(/Valid meta-address/).waitFor({ timeout: 15_000 });
+    await typeInto(dlg.getByLabel('Amount'), '0.02', { delay: 110 });
+    await hold(400);
+    await click(dlg.getByRole('button', { name: 'Review payment' }));
+    await dlg.getByText('Lands in').waitFor({ timeout: 30_000 });
+    await hold(1500);
+    await click(dlg.getByRole('button', { name: 'Confirm and pay' }));
+    await waitResult(dlg.getByText(/^Paid onward$/).or(dlg.getByRole('button', { name: 'Done' })), { timeout: T.tx, error: dlg.locator('[role=alert]') });
+    links.push({ label: 'pay onward', href: await txHref(dlg.getByRole('link', { name: /tx|transaction/i })) });
+    await caption(S[6], SAY.onwardDone);
+    await hold(2600);
+    await click(dlg.getByRole('button', { name: 'Done' }));
+    await hold(300);
   });
 
-  // ---- 10 · What the curtain hides, end card ------------------------------------------------
-  await step('10 limits + end', async () => {
-    mark('s10', S[10]);
+  // ---- 7 · Why NEAR ----------------------------------------------------------------------------------
+  await step('7 why near', async () => {
+    mark('s7', S[7]);
+    await noRole();
     await page.goto(`${base}#/`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: /Pay anyone/ }).waitFor();
-    await caption(S[10], SAY.limits);
-    await demo(() => window.__demo.scrollIntoSafe(document.getElementById('privacy'), { align: 'top', top: 40, ms: 1300 }));
+    await caption(S[7], SAY.near);
+    await demo(() => window.__demo.scrollIntoSafe(document.getElementById('why-near'), { align: 'top', top: 30, ms: 1100 }));
     await hold(900);
-    await pointAt(page.getByText('Sender, amount and time'), { scroll: false });
-    await hold(3000);
-    await caption(S[10], SAY.real);
-    await hold(2200);
+    const implicit = page.locator('#why-near dl > div').first();
+    await pointAt(implicit, { scroll: false, dx: -150 });
+    await hold(2400);
+    await caption(S[7], SAY.near2);
+    await demo(() => window.__demo.scrollToY(window.scrollY + 140, 900));
+    await hold(1800);
+  });
+
+  // ---- 8 · End card -------------------------------------------------------------------------------------
+  await step('8 end', async () => {
     mark('end-card', 'End card');
     await demo((repo) => window.__demo.endCard(repo), REPO);
-    await page.mouse.move(1960, 1100).catch(() => {});
+    await page.mouse.move(1100, 700).catch(() => {});
     await hold(3800);
     mark('end', 'End');
   });
@@ -623,9 +482,9 @@ async function convert(raw, startS, endS) {
   for (;;) {
     ff([...cut, '-an', '-c:v', 'libx264', '-preset', 'slow', '-tune', 'stillimage', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level', '4.1', '-r', '30', '-g', '60', '-movflags', '+faststart', mp4]);
     const size = statSync(mp4).size;
-    if (size <= 25 * 1024 * 1024 || crf >= 30) break;
+    if (size <= 19 * 1024 * 1024 || crf >= 30) break;
     crf += 2;
-    console.log(`[convert] ${(size / 1048576).toFixed(1)} MB is over 25 MB; retrying at crf ${crf}`);
+    console.log(`[convert] ${(size / 1048576).toFixed(1)} MB is over 19 MB; retrying at crf ${crf}`);
   }
   console.log('[convert] demo.webm (VP9)');
   ff([...cut, '-an', '-c:v', 'libvpx-vp9', '-crf', '33', '-b:v', '0', '-row-mt', '1', '-deadline', 'good', '-cpu-used', '4', '-pix_fmt', 'yuv420p', webm]);
@@ -637,13 +496,24 @@ async function writeReadme(markersRel, info, meta) {
   const rows = markersRel.filter((m) => m.id !== 'end').map((m) => `| ${fmt(m.t)} | ${m.label} |`);
   const md = `# Demo video
 
-[\`demo.mp4\`](demo.mp4) (H.264, for X and most players) and [\`demo.webm\`](demo.webm) (VP9) are the same ${fmt(info.mp4.seconds)} recording of the Perde web app on NEAR testnet. It follows [DEMO.md](../DEMO.md) step by step. [\`poster.png\`](poster.png) is a frame for the thumbnail.
+[\`demo.mp4\`](demo.mp4) (H.264, for X and most players) and [\`demo.webm\`](demo.webm) (VP9) are the same ${fmt(info.mp4.seconds)} recording of the Perde web app on NEAR testnet. [\`poster.png\`](poster.png) is a frame for the thumbnail.
 
-## What it shows
+## The story
 
-The production build of \`apps/web\`, driven by Playwright in Chromium at 1920×1080. Every transaction on screen is real and was signed in the browser on NEAR testnet: registering a name, a private payment by NEAR name, the inbox scan, a claim signed by the stealth account itself, a SputnikDAO proposal and its execution, a payroll batch and an audit with a viewing key. The NEAR Intents quote is a real 1Click **dry** quote (nothing executed). Nothing is mocked or edited in; long chain waits are shown as they happened.
+One story, two parties: **a DAO pays Alice, a contributor, without the chain learning it was Alice. Alice then spends the money without ever touching her named account.** One browser and one funded testnet wallet play both sides; a role chip in the top-right corner says who is acting ("DAO member" while the DAO proposes and approves the payout, "Alice · contributor" while she receives, scans and pays onward).
 
-The recorder adds only a presentation layer drawn over the page: a cursor (Playwright's video does not show the OS cursor), captions, the title card and the end card. The 12-word recovery phrase stays behind the app's curtain and the wallet key is never shown.
+1. Title card, then the problem: on NEAR every payment names its recipient. The landing page toggles **Without Perde / With Perde**.
+2. **Receive** (Alice): she creates an identity and gets one meta-address. The recovery phrase stays behind the curtain.
+3. **DAO payout** (the DAO member): the meta-address is pasted, 0.1 NEAR, **Propose payout**. The public SputnikDAO proposal shows an amount and a fresh account, no recipient.
+4. **Approve & execute**: the DAO votes and the payment executes in the same transaction.
+5. **Inbox** (Alice): her browser scans the public announcements with her view key and finds the payout. The **Chain view** shows what anyone can read and what only she knows.
+6. **Pay someone from here**: she pays 0.02 NEAR onward to a second, freshly generated meta-address. The stealth account signs for itself and pays its own gas; her named account never appears.
+7. **Why NEAR**: an implicit account is an ed25519 key, so a stealth key already is an account. No pool, relayer, indexer or backend.
+8. End card.
+
+Every transaction on screen is real and was signed in the browser on NEAR testnet; nothing is mocked or edited in, and chain waits are shown as they happened. The recorder adds only a presentation layer drawn over the page: a cursor (Playwright's video does not show the OS cursor), captions, the role chip, the title card and the end card. The 12-word recovery phrase stays behind the app's curtain and the wallet key is never shown. The second meta-address ("someone Alice pays") is generated off-camera with \`@perde/core\`; only its public meta-address is used.
+
+The page is laid out at ${CSS_VIEW.width}×${CSS_VIEW.height} CSS px and rendered at ${SCALE}× (1920×1080 output), so the app's own text is large enough to read on a phone while the desktop sidebar layout still shows.
 
 ## Timestamps
 
@@ -658,9 +528,9 @@ npm run demo:video          # build, record, convert, sweep leftovers back to th
 npm run demo:video -- --dry # only checks selectors and navigation, no transactions
 \`\`\`
 
-The script is [\`scripts/video/record-demo.mjs\`](../scripts/video/record-demo.mjs). It builds the app into \`scripts/video/.build/\`, serves it locally, injects a funded throwaway testnet account (\`.cache/demo-account.json\`, not committed) into the app's storage, records with Playwright's \`recordVideo\`, trims the page-load frames and converts with the project-local \`ffmpeg-static\` binary. After the take it claims every payment it created back to the demo wallet and unregisters the name, so a take costs only gas and fees.
+The script is [\`scripts/video/record-demo.mjs\`](../scripts/video/record-demo.mjs). It builds the app into \`scripts/video/.build/\`, serves it locally, injects a funded throwaway testnet account (\`.cache/demo-account.json\`, not committed) into the app's storage, records with Playwright's \`recordVideo\`, trims the page-load frames and converts with the project-local \`ffmpeg-static\` binary. After the take it claims what is left of the payout back to the demo wallet, so a take costs only gas, fees and the small onward payment.
 
-Recorded ${meta.recordedAt}. Take: ${meta.takeName}. Explorer: ${meta.explorerNote}
+Recorded ${meta.recordedAt}. Take: ${meta.takeName}.
 `;
   await writeFile(join(demoOut, 'README.md'), md);
 }
@@ -703,16 +573,22 @@ try {
     const before = await walletBalance(account.accountId);
     console.log(`[wallet] ${account.accountId}: ${before === null ? '?' : near(before)} NEAR before the take`);
 
-    const ctx = await browser.newContext({
-      viewport: VIEW,
-      deviceScaleFactor: 1,
+    // Playwright's video ignores deviceScaleFactor, so the scale is forced at browser level: the window is
+    // CSS_VIEW CSS px and renders at SCALE x, and the screencast is the 1920x1080 device-pixel surface.
+    const recBrowser = await chromium.launch({
+      headless: !HEADED,
+      args: [`--force-device-scale-factor=${SCALE}`, `--window-size=${CSS_VIEW.width},${CSS_VIEW.height}`, '--hide-scrollbars'],
+    });
+    const ctx = await recBrowser.newContext({
+      viewport: null,
+      bypassCSP: true, // the app ships a strict CSP; the recorder's overlay needs inline styles
       colorScheme: 'dark',
-      recordVideo: { dir: rawDir, size: VIEW },
+      recordVideo: { dir: rawDir, size: OUT },
     });
     await prepareContext(ctx, { theme: 'dark', state: initialState(account) });
     await ctx.addInitScript((cfg) => {
       window.__DEMO_CFG = cfg;
-    }, { titleOnFirstLoad: true, hideCursorUntilMove: false, appBase: base });
+    }, { titleOnFirstLoad: true, hideCursorUntilMove: false, appBase: base, scale: SCALE });
     await ctx.addInitScript({ path: overlayPath });
 
     const problems = [];
@@ -740,6 +616,7 @@ try {
       await ctx.close();
     }
     const raw = await page.video().path();
+    await recBrowser.close();
     console.log(`[video] raw take: ${raw}`);
     if (problems.length) {
       console.log(`[browser] ${problems.length} console error(s)/page error(s):`);
@@ -770,7 +647,6 @@ try {
       const meta = {
         takeName,
         recordedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
-        explorerNote: 'testnet.nearblocks.io answered headless Chromium with a Cloudflare check, so the video uses the in-app Chain view, which reads the same transaction and announcement from RPC.',
       };
       await writeFile(join(buildDir, 'last-take.json'), JSON.stringify({ raw, startS: start, endS: end, markers: rel, links, takeName }, null, 2));
       if (DRY) {

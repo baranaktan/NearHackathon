@@ -21,7 +21,7 @@ export const stateDir = join(videoDir, '.state');
 export const demoOut = join(repoRoot, 'demo');
 export const shotsOut = join(repoRoot, 'docs', 'screenshots');
 export const overlayPath = join(videoDir, 'lib', 'overlay.js');
-export const REPO = 'github.com/baranaktan/NearHackathon';
+export const REPO = 'github.com/baranaktan/Perde';
 
 export const T = { tx: 90_000, scan: 120_000, quote: 45_000 };
 
@@ -153,6 +153,10 @@ export async function sweep(browser, base, storageFile, { unregister = true, log
       const btn = claimButtons.nth(skipped);
       await btn.click();
       const dlg = page.getByRole('dialog');
+      // The dialog no longer pre-fills a destination: type the demo wallet (the sweep's own, never a person's).
+      const destInput = dlg.getByLabel('Destination account');
+      await destInput.waitFor({ timeout: 15_000 }).catch(() => {});
+      if (!(await destInput.inputValue().catch(() => ''))) await destInput.fill((await loadDemoAccount()).accountId).catch(() => {});
       await dlg.getByText(/Destination receives about|Enter a NEAR account id|insufficient|not enough|too little/i).first().waitFor({ timeout: 30_000 }).catch(() => {});
       const claim = dlg.getByRole('button', { name: 'Claim', exact: true });
       if (!(await claim.isEnabled().catch(() => false))) {
