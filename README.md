@@ -2,7 +2,7 @@
 
 *Perde* is Turkish for "curtain".
 
-**Live demo:** https://YOUR-VERCEL-URL  ·  **Demo post:** https://x.com/YOUR-POST  ·  **Video:** [`demo/demo.mp4`](demo/demo.mp4)
+**Live demo:** https://perde-live.vercel.app  ·  **Demo post:** https://x.com/YOUR-POST  ·  **Video:** [`demo/demo.mp4`](demo/demo.mp4)
 
 **Problem.** Every payment on NEAR names its recipient. When a DAO pays a contributor, a team runs payroll or a freelancer gets an invoice paid, anyone can read who was paid, how much, and everything else that account holds.
 
