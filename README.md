@@ -80,6 +80,19 @@ npm run test:contract   # 36 Rust unit tests (needs rustup; the pinned toolchain
 npm run test:testnet    # live NEAR testnet integration tests (uses the faucet once, then a cached account)
 ```
 
+## Demo video and screenshots
+
+A 2:54 recording of the web app doing real testnet transactions: [`demo/demo.mp4`](demo/demo.mp4) ([`demo/demo.webm`](demo/demo.webm)). It follows [`DEMO.md`](DEMO.md) step by step; regenerate it with `npm run demo:video`.
+
+| | |
+| --- | --- |
+| ![Guided demo](docs/screenshots/guided-demo.png) Guided demo: every tick comes from real chain state | ![Send review](docs/screenshots/send-review.png) Send: the fresh stealth account is shown before signing |
+| ![Inbox](docs/screenshots/inbox.png) Inbox: payments found with the view key | ![Chain view](docs/screenshots/chain-view.png) Chain view: what the public sees next to what you know |
+| ![DAO payout](docs/screenshots/dao-payout.png) A SputnikDAO proposal that never names the recipient | ![Invoice](docs/screenshots/invoice-any-chain.png) Invoice with a live NEAR Intents dry quote |
+| ![Payroll](docs/screenshots/payroll.png) Payroll: several private payments in one transaction | ![Audit](docs/screenshots/audit.png) Audit: read-only access with a viewing key |
+
+<img src="docs/screenshots/mobile-inbox.png" alt="Inbox on a phone" width="260"> <img src="docs/screenshots/mobile-invoice.png" alt="Invoice on a phone" width="260">
+
 ## What is implemented
 
 Every row is something you can run. Nothing here is mocked; the only preview-only feature is marked as such.
