@@ -1,11 +1,11 @@
 import { CircleCheck, CircleMinus, CircleX, Info, ShieldCheck, ShieldX } from 'lucide-react';
-import { m } from 'motion/react';
 import { PageHeader } from '../../app-shell/PageHeader';
 import { Card, DataRow } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Field, Textarea } from '../../ui/Field';
 import { AddressChip } from '../../ui/AddressChip';
 import { Callout, Skeleton } from '../../ui/Feedback';
+import { FadeUp } from '../../ui/FadeUp';
 import { TxLink } from '../../ui/TxLink';
 import { Amount } from '../../components/Amount';
 import { cn } from '../../lib/cn';
@@ -86,7 +86,7 @@ export default function VerifyPage() {
 function Result({ ok, summary, checks, reason }: { ok: boolean; summary: ReceiptSummary | null; checks: VerifyCheck[]; reason?: string }) {
   const Icon = ok ? ShieldCheck : ShieldX;
   return (
-    <m.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+    <FadeUp>
       <Card padded={false} className={cn('overflow-hidden', ok ? 'border-success/40' : 'border-danger/45')}>
         <div className={cn('flex items-start gap-4 px-5 py-6 sm:px-7', ok ? 'bg-success/[0.07]' : 'bg-danger/[0.07]')}>
           <Icon aria-hidden className={cn('mt-1 size-6 shrink-0', ok ? 'text-success' : 'text-danger')} />
@@ -115,11 +115,18 @@ function Result({ ok, summary, checks, reason }: { ok: boolean; summary: Receipt
               </DataRow>
             )}
             {summary.timestampMs && <DataRow label="Time">{formatDateTimeFull(summary.timestampMs)}</DataRow>}
-            {summary.txHash && (
-              <DataRow label="Transaction">
-                <TxLink hash={summary.txHash} label="" />
-              </DataRow>
-            )}
+            {summary.txHash &&
+              (summary.txCheck === 'mismatch' ? (
+                <DataRow label="Claimed transaction (does not match)">
+                  <span className="num font-mono text-[13px] text-danger line-through" translate="no" title={summary.txHash}>
+                    {truncateMiddle(summary.txHash, 6, 4)}
+                  </span>
+                </DataRow>
+              ) : (
+                <DataRow label={summary.txCheck === 'match' ? 'Transaction' : 'Transaction (not checked)'}>
+                  <TxLink hash={summary.txHash} label="" />
+                </DataRow>
+              ))}
           </dl>
         )}
         <div className="border-t border-line px-5 py-5 sm:px-7">
@@ -154,6 +161,6 @@ function Result({ ok, summary, checks, reason }: { ok: boolean; summary: Receipt
           A failed check means the receipt doesn’t prove this payment. It doesn’t say whether a payment happened some other way.
         </Callout>
       )}
-    </m.div>
+    </FadeUp>
   );
 }

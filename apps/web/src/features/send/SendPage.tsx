@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { ArrowLeft, ArrowRight, Check, CircleCheck, RotateCcw, UserRound } from 'lucide-react';
-import { m } from 'motion/react';
 import { PageHeader } from '../../app-shell/PageHeader';
 import { Card, CardHeader, DataRow } from '../../ui/Card';
 import { Button, ButtonLink } from '../../ui/Button';
@@ -9,6 +8,7 @@ import { Field, Input, Textarea } from '../../ui/Field';
 import { AmountInput } from '../../ui/AmountInput';
 import { AddressChip, VeilMark } from '../../ui/AddressChip';
 import { Callout, Skeleton } from '../../ui/Feedback';
+import { FadeUp } from '../../ui/FadeUp';
 import { Stepper, type StepStatus } from '../../ui/Stepper';
 import { TxProgress } from '../../components/TxProgress';
 import { TxLink } from '../../ui/TxLink';
@@ -309,7 +309,7 @@ function SuccessStep({ phase, onReset, onChainView }: { phase: Extract<SendPhase
   const verifyLink = `/app/verify?${new URLSearchParams({ r: receipt }).toString()}`;
   return (
     <Card className="overflow-hidden">
-      <m.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+      <FadeUp duration={0.4}>
         <div className="flex items-start gap-3">
           <CircleCheck aria-hidden className="mt-1 size-5 shrink-0 text-success" />
           <div className="min-w-0">
@@ -333,7 +333,7 @@ function SuccessStep({ phase, onReset, onChainView }: { phase: Extract<SendPhase
             </button>
           )}
         </div>
-      </m.div>
+      </FadeUp>
 
       <div className="mt-7 rounded-lg border border-line bg-surface-2/50 p-4 sm:p-5">
         <Field

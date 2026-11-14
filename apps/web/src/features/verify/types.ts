@@ -14,6 +14,8 @@ export interface ReceiptSummary {
   stealthAccount: string;
   amountYocto: string | null;
   txHash: string | null;
+  /** Whether `txHash` was checked against the chain (see the "tx" check row). */
+  txCheck: 'match' | 'mismatch' | 'unchecked';
   timestampMs: number | null;
 }
 

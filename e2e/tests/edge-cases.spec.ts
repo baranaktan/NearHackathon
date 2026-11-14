@@ -5,31 +5,45 @@
  */
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { AnnouncementJson } from '../support/chain-mock';
+import { RECORDED_TX_STATUS, syntheticSendTxStatus, syntheticTxHash, type AnnouncementJson } from '../support/chain-mock';
 import { expect, FIXTURE_WALLET, go, KNOWN_META, persistedState, test } from '../support/test';
 
 interface CoreLike {
   deriveStealth: (meta: string) => { stealthAccountId: string; ephemeralPk: string; viewTag: number; r: bigint };
-  createReceipt: (p: { meta: string; r: bigint; stealthAccountId: string; tx?: string }) => string;
+  createReceipt: (p: { meta: string; r: bigint; stealthAccountId: string; tx?: string; from?: string }) => string;
   keysFromSeed: (seed: Uint8Array) => unknown;
   encodeMetaAddress: (k: unknown) => string;
 }
 const core = (): Promise<CoreLike> => import(pathToFileURL(join(process.cwd(), '..', 'packages', 'core', 'dist', 'index.js')).href) as Promise<CoreLike>;
+/** Signer of the RECORDED send the SYNTHETIC transaction answers are built from. */
+const RECORDED_SENDER = 'perde-demo-3e72beda7e6e.testnet';
 
-/** SYNTHETIC announcements built with @perde/core's real stealth derivation (not recorded chain data). */
-async function syntheticAnnouncements(total: number, mine: number[]): Promise<{ list: AnnouncementJson[]; receipts: Map<number, string> }> {
+/**
+ * SYNTHETIC announcements built with @perde/core's real stealth derivation (not recorded chain data). Each of
+ * "mine" gets a receipt naming a SYNTHETIC transaction whose `EXPERIMENTAL_tx_status` answer (`txStatus`, for the
+ * chain mock) is the RECORDED send rewritten for that payment.
+ */
+async function syntheticAnnouncements(total: number, mine: number[]): Promise<{ list: AnnouncementJson[]; receipts: Map<number, string>; txStatus: Record<string, unknown> }> {
   const c = await core();
   const others = Array.from({ length: 4 }, (_, i) => c.encodeMetaAddress(c.keysFromSeed(new Uint8Array(64).fill(i + 7))));
   const receipts = new Map<number, string>();
+  const txStatus: Record<string, unknown> = {};
   const list: AnnouncementJson[] = [];
   for (let i = 0; i < total; i++) {
     const meta = mine.includes(i) ? KNOWN_META : others[i % others.length]!;
     const d = c.deriveStealth(meta);
     list.push({ index: i, stealth_account: d.stealthAccountId, ephemeral_pk: d.ephemeralPk, view_tag: d.viewTag, amount: '50000000000000000000000', timestamp_ms: 1_794_600_000_000 + i * 1000 });
-    if (mine.includes(i)) receipts.set(i, c.createReceipt({ meta, r: d.r, stealthAccountId: d.stealthAccountId, tx: '9Qg1J7dGLUUxN4uAsSsLtczSWUM1zW2DAoqPLQ29VZ2p' }));
+    if (mine.includes(i)) {
+      const hash = syntheticTxHash(`synthetic-send-${d.stealthAccountId}`);
+      txStatus[hash] = syntheticSendTxStatus({ hash, stealth: d.stealthAccountId, ephemeralPk: d.ephemeralPk, viewTag: d.viewTag, index: i });
+      receipts.set(i, c.createReceipt({ meta, r: d.r, stealthAccountId: d.stealthAccountId, tx: hash, from: RECORDED_SENDER }));
+    }
   }
-  return { list, receipts };
+  return { list, receipts, txStatus };
 }
+
+const decode = (receipt: string) => JSON.parse(Buffer.from(receipt.slice('perdereceipt:'.length), 'base64url').toString()) as Record<string, string>;
+const encode = (data: Record<string, unknown>) => 'perdereceipt:' + Buffer.from(JSON.stringify(data)).toString('base64url');
 
 test.describe('amount input', () => {
   test.use({ seed: { identity: true, wallet: true }, chainOptions: { existingAccounts: [FIXTURE_WALLET] } });
@@ -166,7 +180,7 @@ test.describe('stored state', () => {
     test.describe('reload', () => {
       // A reload cancels in-flight requests of the old document: Firefox logs the aborted font downloads,
       // WebKit reports the cancelled fetches as "access control checks" errors. Nothing else is allowed.
-      test.use({ allowConsole: /downloadable font: download failed|due to access control checks|Importing a module script failed|error loading dynamically imported module|classified as a bounce tracker|argument of an unloaded document/ });
+      test.use({ allowConsole: /downloadable font: download failed|due to access control checks|Importing a module script failed|Loading failed for the module with source|error loading dynamically imported module|classified as a bounce tracker|argument of an unloaded document/ });
       test('reload in the middle of a scan resumes cleanly', async ({ page, chain }) => {
       chain.set({ rpcDelayMs: 800 });
       await go(page, '/app/inbox');
@@ -217,7 +231,7 @@ test.describe('payroll CSV', () => {
 test.describe('receipts', () => {
   test('invalid input explains what a receipt looks like', async ({ page }) => {
     await go(page, '/app/verify');
-    const field = page.getByLabel('Receipt');
+    const field = page.getByRole('textbox', { name: 'Receipt' });
     await field.fill('hello');
     await page.getByRole('button', { name: 'Verify', exact: true }).click();
     await expect(page.getByText('A receipt starts with “perdereceipt:”.')).toBeVisible();
@@ -229,23 +243,53 @@ test.describe('receipts', () => {
   });
 
   test('a SYNTHETIC announced payment verifies by deep link; a tampered receipt fails', async ({ page, chain }) => {
-    const { list, receipts } = await syntheticAnnouncements(30, [17]);
-    chain.set({ announcements: list });
+    const { list, receipts, txStatus } = await syntheticAnnouncements(30, [17]);
+    chain.set({ announcements: list, txStatus });
     const receipt = receipts.get(17)!;
     await go(page, `/app/verify?${new URLSearchParams({ r: receipt })}`);
     await expect(page.getByRole('heading', { name: 'Verified payment' })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/announcement #17/)).toBeVisible();
+    await expect(page.getByText(/announcement #17/).first()).toBeVisible();
+    await expect(page.getByText(/Transaction matches — pass/)).toBeVisible();
     // Tamper with what the receipt proves: claim a different stealth account, or a different r.
-    const data = JSON.parse(Buffer.from(receipt.slice('perdereceipt:'.length), 'base64url').toString()) as Record<string, string>;
+    const data = decode(receipt);
     const flip = (hex: string) => (hex[0] === 'a' ? 'b' : 'a') + hex.slice(1);
     for (const field of ['stealth', 'r'] as const) {
-      const tampered = 'perdereceipt:' + Buffer.from(JSON.stringify({ ...data, [field]: flip(data[field]!) })).toString('base64url');
+      const tampered = encode({ ...data, [field]: flip(data[field]!) });
       await go(page, '/app/verify');
       await page.getByLabel('Receipt').fill(tampered);
       await page.getByRole('button', { name: 'Verify', exact: true }).click();
       await expect(page.getByText(/The stealth account derives from the meta-address — fail/)).toBeVisible({ timeout: 30_000 });
       await expect(page.getByRole('heading', { name: 'Verified payment' })).toHaveCount(0);
     }
+  });
+
+  test('a receipt whose tx was swapped for another RECORDED payment fails (SYNTHETIC announcement, RECORDED transaction)', async ({ page, chain }) => {
+    const { list, receipts, txStatus } = await syntheticAnnouncements(30, [17]);
+    const other = RECORDED_TX_STATUS.daoPayout; // a real Perde payment to a different stealth account
+    chain.set({ announcements: list, txStatus: { ...txStatus, [other.transaction.hash]: other } });
+    const tampered = encode({ ...decode(receipts.get(17)!), tx: other.transaction.hash, from: undefined });
+    await go(page, `/app/verify?${new URLSearchParams({ r: tampered })}`);
+    await expect(page.getByRole('heading', { name: 'Receipt does not check out' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('The transaction this receipt names did not make this payment.')).toBeVisible();
+    await expect(page.getByText(/Transaction does not match this payment — fail/)).toBeVisible();
+    await expect(page.getByText(/paid nothing into/)).toBeVisible();
+    // Everything else still checks out, and the wrong transaction is not offered as a link.
+    await expect(page.getByText(/The announcement’s ephemeral key and view tag match the receipt — pass/)).toBeVisible();
+    await expect(page.getByText('Claimed transaction (does not match)')).toBeVisible();
+    await expect(page.locator(`a[href*="${other.transaction.hash}"]`)).toHaveCount(0);
+  });
+
+  test('following a second receipt link replaces the receipt in the field and verifies it (SYNTHETIC)', async ({ page, chain }) => {
+    const { list, receipts, txStatus } = await syntheticAnnouncements(30, [17, 21]);
+    chain.set({ announcements: list, txStatus });
+    const field = page.getByRole('textbox', { name: 'Receipt' });
+    await go(page, `/app/verify?${new URLSearchParams({ r: receipts.get(17)! })}`);
+    await expect(page.getByText(/announcement #17 ·/)).toBeVisible({ timeout: 30_000 });
+    await expect(field).toHaveValue(receipts.get(17)!);
+    await go(page, `/app/verify?${new URLSearchParams({ r: receipts.get(21)! })}`);
+    await expect(field).toHaveValue(receipts.get(21)!);
+    await expect(page.getByText(/announcement #21 ·/)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Verified payment' })).toBeVisible();
   });
 });
 

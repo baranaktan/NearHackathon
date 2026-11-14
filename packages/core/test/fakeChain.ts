@@ -47,6 +47,8 @@ export function fakeChain(contractId = 'perde.testnet') {
   const directory = new Map<string, string>();
   const submitted: SubmittedTx[] = [];
   const outcomes = new Map<string, object>();
+  /** `EXPERIMENTAL_tx_status` answers (with `receipts`), by hash. */
+  const withReceipts = new Map<string, object>();
 
   const ok = (result: unknown) => jsonResponse({ jsonrpc: '2.0', id: 1, result });
   const handlerError = (name: string, data?: unknown) =>
@@ -175,14 +177,57 @@ export function fakeChain(contractId = 'perde.testnet') {
       const o = { executor_id: t.signerId, gas_burnt: 446365125000, tokens_burnt: BURN_PER_TX.toString(), logs: [], receipt_ids: [], status };
       const result = { final_execution_status: 'EXECUTED_OPTIMISTIC', status, transaction: { hash, signer_id: t.signerId, receiver_id: t.receiverId }, transaction_outcome: { id: hash, block_hash: 'b', outcome: { ...o, tokens_burnt: '0', gas_burnt: 0 } }, receipts_outcome: [{ id: 'r', block_hash: 'b', outcome: o }] };
       outcomes.set(`${hash}|${t.signerId}`, result);
+      withReceipts.set(hash, txStatusWithReceipts(hash, sub, status, announcements));
       return ok(result);
     }
     if (method === 'tx') {
       const found = outcomes.get(`${String(params.tx_hash)}|${String(params.sender_account_id)}`);
       return found ? ok(found) : handlerError('UNKNOWN_TRANSACTION');
     }
+    if (method === 'EXPERIMENTAL_tx_status') {
+      // Like the public testnet RPCs (they track every shard): any valid sender_account_id finds the transaction.
+      const found = withReceipts.get(String(params.tx_hash));
+      return found ? ok(found) : handlerError('UNKNOWN_TRANSACTION');
+    }
     throw new Error(`fake chain: unhandled ${method}`);
   });
+
+  function txStatusWithReceipts(hash: string, tx: SubmittedTx, status: object, list: readonly FakeAnnouncement[]): object {
+    const succeeded = 'SuccessValue' in status;
+    const outcome = (id: string, executor: string, logs: string[] = []) => ({
+      id,
+      block_hash: 'b',
+      outcome: { executor_id: executor, gas_burnt: 1, tokens_burnt: '0', logs, receipt_ids: [], status: succeeded ? { SuccessValue: '' } : status },
+    });
+    const receipt = (id: string, from: string, to: string, actions: object[]) => ({ receipt_id: id, predecessor_id: from, receiver_id: to, receipt: { Action: { actions, signer_id: tx.signerId } } });
+    const receipts: object[] = [];
+    const receiptsOutcome: object[] = [];
+    if (tx.receiverId === contractId) {
+      receipts.push(receipt('r0', tx.signerId, contractId, [{ FunctionCall: { method_name: tx.actions[0]?.methodName ?? '?' } }]));
+      const sends = tx.actions.filter((a) => a.methodName === 'send');
+      const announced = succeeded ? list.slice(list.length - sends.length) : [];
+      const logs = announced.length > 0 ? [`EVENT_JSON:${JSON.stringify({ standard: 'perde', version: '1.0.0', event: 'announce', data: announced })}`] : [];
+      receiptsOutcome.push(outcome('r0', contractId, logs));
+      announced.forEach((a, i) => {
+        receipts.push(receipt(`r${i + 1}`, contractId, a.stealth_account, [{ Transfer: { deposit: a.amount } }]));
+        receiptsOutcome.push(outcome(`r${i + 1}`, a.stealth_account));
+      });
+    } else {
+      const deposit = tx.actions.reduce((s, a) => s + (a.kind === 'transfer' ? (a.deposit ?? 0n) : 0n), 0n);
+      receipts.push(receipt('r0', tx.signerId, tx.receiverId, deposit > 0n ? [{ Transfer: { deposit: deposit.toString() } }] : [{ DeleteAccount: {} }]));
+      receiptsOutcome.push(outcome('r0', tx.receiverId));
+    }
+    receipts.push(receipt('refund', 'system', tx.signerId, [{ Transfer: { deposit: '1000' } }]));
+    receiptsOutcome.push(outcome('refund', tx.signerId));
+    return {
+      final_execution_status: 'FINAL',
+      status,
+      transaction: { hash, signer_id: tx.signerId, receiver_id: tx.receiverId },
+      transaction_outcome: outcome(hash, tx.signerId),
+      receipts,
+      receipts_outcome: receiptsOutcome,
+    };
+  }
 
   return {
     fetch,

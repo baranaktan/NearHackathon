@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, m } from 'motion/react';
 import { CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { cn } from '../lib/cn';
+import { useMotionUnavailable } from '../lib/motion-status';
 import { ToastContext, type ToastApi, type ToastInput } from './toast-context';
 
 interface ToastItem extends ToastInput {
@@ -27,6 +28,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 
   const api = useMemo<ToastApi>(() => ({ show }), [show]);
+  // Without the animation code an exit never completes (a dismissed toast would stay): render the list directly.
+  const off = useMotionUnavailable();
 
   return (
     <ToastContext.Provider value={api}>
@@ -36,15 +39,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         aria-relevant="additions"
         className="pointer-events-none fixed inset-x-0 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 flex flex-col items-center gap-2 px-4 lg:bottom-6 lg:items-end lg:px-6"
       >
-        <AnimatePresence initial={false}>
-          {items.map((t) => {
+        {(() => {
+          const list = items.map((t) => {
             const tone = t.tone ?? 'neutral';
             const Icon = icons[tone];
             return (
               <m.div
                 key={t.id}
                 layout
-                initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                initial={off ? false : { opacity: 0, y: 12, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 6, scale: 0.98, transition: { duration: 0.15 } }}
                 transition={{ type: 'spring', stiffness: 420, damping: 34 }}
@@ -69,8 +72,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 </button>
               </m.div>
             );
-          })}
-        </AnimatePresence>
+          });
+          return off ? list : <AnimatePresence initial={false}>{list}</AnimatePresence>;
+        })()}
       </div>
     </ToastContext.Provider>
   );

@@ -70,7 +70,7 @@ export async function executeSend(params: {
       announcementIndex = claimed;
     }
   }
-  const receipt = createReceipt({ meta: metaAddress, r: stealth.r, stealthAccountId: stealth.stealthAccountId, tx: outcome.hash });
+  const receipt = createReceipt({ meta: metaAddress, r: stealth.r, stealthAccountId: stealth.stealthAccountId, tx: outcome.hash, from: senderId });
   return { txHash: outcome.hash, receipt, announcementIndex, outcome };
 }
 
@@ -122,7 +122,7 @@ export async function executeBatch(params: {
     txHash: outcome.hash,
     legs: derived.map((d) => ({
       stealth: d.stealth,
-      receipt: createReceipt({ meta: d.leg.metaAddress, r: d.stealth.r, stealthAccountId: d.stealth.stealthAccountId, tx: outcome.hash }),
+      receipt: createReceipt({ meta: d.leg.metaAddress, r: d.stealth.r, stealthAccountId: d.stealth.stealthAccountId, tx: outcome.hash, from: senderId }),
       announcementIndex: indices.get(d.stealth.stealthAccountId) ?? null,
     })),
   };

@@ -1,4 +1,5 @@
 import { m } from 'motion/react';
+import { useMotionUnavailable } from '../lib/motion-status';
 import { ArrowDown, ArrowRight } from 'lucide-react';
 import { Drape } from '../brand/Drape';
 import { ButtonLink } from '../ui/Button';
@@ -9,13 +10,14 @@ import { SectionLink } from './SectionLink';
 const EASE = [0.65, 0, 0.2, 1] as const;
 
 function SideDrapes() {
+  const off = useMotionUnavailable();
   return (
     <>
       {(['left', 'right'] as const).map((side) => (
         <m.div
-          key={side}
+          key={off ? `-static` : side}
           aria-hidden
-          initial={{ scaleX: 2.4, opacity: 0.9 }}
+          initial={off ? false : { scaleX: 2.4, opacity: 0.9 }}
           animate={{ scaleX: 1, opacity: 1 }}
           transition={{ duration: 1.4, ease: EASE, delay: 0.1 }}
           style={{ originX: side === 'left' ? 0 : 1 }}

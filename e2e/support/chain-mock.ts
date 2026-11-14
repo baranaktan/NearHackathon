@@ -9,6 +9,7 @@
  * `unhandled` and fails the test (see support/test.ts) — the mock never
  * invents chain data silently.
  */
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { BrowserContext, Request, Route } from '@playwright/test';
@@ -54,6 +55,44 @@ const TEMPLATE_ACCESS_KEY = findKey((k) => k.includes('"request_type":"view_acce
 const TEMPLATE_UNKNOWN_TX = findKey((k) => k.startsWith('tx ') && k.includes('9Qg1J7dGLUUxN4uAsSsLtczSWUM1zW2DAoqPLQ29VZ2p'));
 const TEMPLATE_VIEW = findKey((k) => k.includes('"method_name":"announcement_count"')).result as { block_hash: string; block_height: number };
 
+/** RECORDED `EXPERIMENTAL_tx_status` answers of real testnet transactions (fixtures/recorded/testnet-tx-status.json). */
+export const RECORDED_TX_STATUS = (
+  JSON.parse(readFileSync(`${fixtureDir}testnet-tx-status.json`, 'utf8')) as { transactions: Record<'send' | 'daoPayout' | 'plainTransfer', { transaction: { hash: string } }> }
+).transactions;
+
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+/** A deterministic, well-formed NEAR transaction hash (base58 of 32 bytes) for SYNTHETIC answers. */
+export function syntheticTxHash(seed: string): string {
+  let n = BigInt(`0x${createHash('sha256').update(seed).digest('hex')}`);
+  let out = '';
+  while (n > 0n) {
+    out = B58[Number(n % 58n)] + out;
+    n /= 58n;
+  }
+  return out;
+}
+
+/**
+ * SYNTHETIC `EXPERIMENTAL_tx_status` answer: the RECORDED Perde send with its
+ * hash, stealth account, ephemeral key, view tag and announcement index
+ * replaced, i.e. what the chain would answer for a send to `stealth`. Used with
+ * the SYNTHETIC announcements, whose payments never happened on chain.
+ */
+export function syntheticSendTxStatus(p: { hash: string; stealth: string; ephemeralPk: string; viewTag: number; index: number }): unknown {
+  const rec = RECORDED_TX_STATUS.send as unknown as { transaction: { hash: string }; receipts_outcome: Array<{ outcome: { logs: string[] } }> };
+  const ev = (() => {
+    for (const o of rec.receipts_outcome) for (const l of o.outcome.logs) if (l.startsWith('EVENT_JSON:')) return (JSON.parse(l.slice(11)) as { data: Array<{ stealth_account: string; ephemeral_pk: string; view_tag: number; index: number }> }).data[0]!;
+    throw new Error('recorded send has no announce event');
+  })();
+  const text = JSON.stringify(rec)
+    .replaceAll(rec.transaction.hash, p.hash)
+    .replaceAll(ev.stealth_account, p.stealth)
+    .replaceAll(ev.ephemeral_pk, p.ephemeralPk)
+    .replaceAll(`\\"view_tag\\":${ev.view_tag}`, `\\"view_tag\\":${p.viewTag}`)
+    .replaceAll(`\\"index\\":${ev.index}`, `\\"index\\":${p.index}`);
+  return { ...(JSON.parse(text) as object), _synthetic: 'SYNTHETIC: recorded send with replaced hash / stealth account / ephemeral key / view tag / index' };
+}
+
 export type RpcMode = 'fixtures' | 'down' | 'malformed' | 'http500';
 export type OneClickMode = 'fixtures' | 'http500' | 'timeout' | 'down';
 export type FaucetMode = 'unexpected' | 'rate-limited';
@@ -72,6 +111,8 @@ export interface ChainMockOptions {
   names?: Record<string, string>;
   /** What `send_tx` does: abort (network failure after signing) or hang until the test releases it. */
   sendTx?: 'abort' | 'hang';
+  /** `EXPERIMENTAL_tx_status` answers by hash (RECORDED_TX_STATUS or syntheticSendTxStatus); other hashes are unknown. */
+  txStatus?: Record<string, unknown>;
 }
 
 export interface RpcCall {
@@ -85,7 +126,7 @@ export class ChainMock {
   readonly unhandled: string[] = [];
   readonly oneClickCalls: string[] = [];
   readonly faucetCalls: number[] = [];
-  opts: Required<Omit<ChainMockOptions, 'names'>> & { names: Record<string, string> };
+  opts: Required<Omit<ChainMockOptions, 'names' | 'txStatus'>> & { names: Record<string, string>; txStatus: Record<string, unknown> };
   #releaseHung: Array<() => void> = [];
 
   constructor(options: ChainMockOptions = {}) {
@@ -98,6 +139,7 @@ export class ChainMock {
       announcements: options.announcements ?? RECORDED_ANNOUNCEMENTS,
       names: options.names ?? {},
       sendTx: options.sendTx ?? 'abort',
+      txStatus: options.txStatus ?? {},
     };
   }
 
@@ -196,6 +238,7 @@ export class ChainMock {
       return JSON.parse(JSON.stringify(TEMPLATE_MISSING_ACCOUNT).replaceAll('perde-e2e-missing-account.testnet', id)) as RpcAnswer;
     }
     if (method === 'query' && p.request_type === 'view_access_key' && this.opts.existingAccounts.includes(String(p.account_id))) return TEMPLATE_ACCESS_KEY;
+    if (method === 'EXPERIMENTAL_tx_status' && typeof p.tx_hash === 'string' && p.tx_hash in this.opts.txStatus) return { result: this.opts.txStatus[p.tx_hash] };
     if ((method === 'tx' || method === 'EXPERIMENTAL_tx_status') && typeof p.tx_hash === 'string') {
       return JSON.parse(JSON.stringify(TEMPLATE_UNKNOWN_TX).replaceAll('9Qg1J7dGLUUxN4uAsSsLtczSWUM1zW2DAoqPLQ29VZ2p', p.tx_hash)) as RpcAnswer;
     }

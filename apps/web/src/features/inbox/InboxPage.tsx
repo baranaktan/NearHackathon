@@ -276,11 +276,11 @@ function PaymentRow({
             {p.spend === 'partially-spent' && <Badge tone="brass">Partly paid onward</Badge>}
             <div className="flex flex-wrap gap-2 sm:justify-end">
               {canOnward && (
-                <Button size="sm" variant="secondary" onClick={onPayOnward}>
+                <Button size="sm" onClick={onPayOnward}>
                   Pay someone from here
                 </Button>
               )}
-              <Button size="sm" onClick={onClaim}>
+              <Button size="sm" variant={canOnward ? 'secondary' : 'primary'} onClick={onClaim}>
                 {p.spend === 'partially-spent' ? 'Claim the rest…' : 'Claim to…'}
               </Button>
             </div>
@@ -348,11 +348,11 @@ function ClaimDialog({ m, payment, onClose }: { m: InboxModel; payment: FoundPay
   const valid = isNamedAccount(trimmed) || isImplicitAccount(trimmed);
   const key = `${payment?.id ?? ''}|${trimmed}|${mode}`;
 
-  // Suggest the demo wallet when the dialog opens.
+  // The destination starts empty: the wallet is only offered as a suggestion, because paying it links this payment to it.
   const [openedFor, setOpenedFor] = useState<string | null>(null);
   if (payment && openedFor !== payment.id) {
     setOpenedFor(payment.id);
-    setDest(m.destinationSuggestions[0] ?? '');
+    setDest('');
     setMode('deleteAccount');
   }
 
@@ -403,7 +403,7 @@ function ClaimDialog({ m, payment, onClose }: { m: InboxModel; payment: FoundPay
         </Field>
         {m.destinationSuggestions.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-[13px] text-fg-muted">
-            Your demo wallet:
+            Your demo wallet — links this payment to it:
             {m.destinationSuggestions.map((s) => (
               <button
                 key={s}

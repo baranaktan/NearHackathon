@@ -67,6 +67,20 @@ export default defineConfig({
   build: {
     target: 'es2022',
     assetsInlineLimit: 0,
+    /*
+     * Keep the <link rel="modulepreload"> tags in index.html (used while the page
+     * parses), but do not let Vite's runtime helper add them when a lazy page is
+     * entered. Those runtime preloads are only "used" once the page chunk itself
+     * has downloaded and imports them; if that is still in flight at load + 3 s,
+     * Safari/WebKit warns "preloaded using link preload but not used" for every
+     * shared chunk (slow networks hit this every time; the e2e suite hit it under
+     * load). Without them the browser fetches a lazy page's shared chunks as soon
+     * as the page chunk is parsed: one extra round trip on a cold route, no warning.
+     * Regression: e2e/tests/resilience.spec.ts ("unused-preload").
+     */
+    modulePreload: {
+      resolveDependencies: (_file, deps, { hostType }) => (hostType === 'html' ? deps : []),
+    },
     rollupOptions: {
       output: {
         // Stable, cacheable vendor chunks instead of one opaque shared chunk.

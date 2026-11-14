@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { createReceipt, deriveStealth, encodeMetaAddress, keysFromMnemonic, type Announcement } from '@perde/core';
+import { createReceipt, deriveStealth, encodeMetaAddress, keysFromMnemonic, type Announcement, type ReceiptTxCheck } from '@perde/core';
 import { initialState } from '../state/schema';
 import { buildVerification } from './verify/logic';
 import { entryStatus } from './audit/useAudit';
@@ -30,25 +30,50 @@ describe('receipt verification checklist', () => {
   const d = deriveStealth(META);
   const receipt = createReceipt({ meta: META, r: d.r, stealthAccountId: d.stealthAccountId, tx: 'TxHash' });
   const ann: Announcement = { index: 12, stealthAccountId: d.stealthAccountId, ephemeralPk: d.ephemeralPk, viewTag: d.viewTag, amount: 5n * 10n ** 22n, timestampMs: 1 };
+  const txMatch: ReceiptTxCheck = { status: 'match', txHash: 'TxHash', signerId: 'alice.testnet', via: 'perde', amountYocto: ann.amount, announcementIndex: 12 };
+  const txUnchecked: ReceiptTxCheck = { status: 'unchecked', txHash: 'TxHash', reason: 'the RPC could not look the transaction up' };
+  const txMismatch: ReceiptTxCheck = { status: 'mismatch', txHash: 'TxHash', reason: 'this transaction paid nothing into the account' };
+  const chain = (transaction: ReceiptTxCheck, announcement: Announcement | null = ann) => ({ contractId: 'perde-pay.testnet', announcementCount: 20, announcement: announcement ?? undefined, balanceYocto: 0n, transaction });
 
-  it('verifies against a matching announcement', () => {
-    const s = buildVerification(receipt, { contractId: 'perde-pay.testnet', announcementCount: 20, announcement: ann, balanceYocto: 0n });
+  it('verifies against a matching announcement and transaction', () => {
+    const s = buildVerification(receipt, chain(txMatch));
     expect(s.status).toBe('verified');
     if (s.status === 'verified') {
-      expect(s.checks.map((c) => c.status)).toEqual(['pass', 'pass', 'pass', 'pass', 'info']);
-      expect(s.summary).toMatchObject({ stealthAccount: d.stealthAccountId, amountYocto: ann.amount.toString(), txHash: 'TxHash' });
+      expect(s.checks.map((c) => c.status)).toEqual(['pass', 'pass', 'pass', 'pass', 'pass', 'info']);
+      expect(s.checks.find((c) => c.id === 'tx')).toMatchObject({ label: 'Transaction matches', detail: expect.stringContaining('signed by alice.testnet') as unknown });
+      expect(s.summary).toMatchObject({ stealthAccount: d.stealthAccountId, amountYocto: ann.amount.toString(), txHash: 'TxHash', txCheck: 'match' });
+    }
+  });
+
+  it('a transaction that does not match fails the whole receipt', () => {
+    const s = buildVerification(receipt, chain(txMismatch));
+    expect(s.status).toBe('failed');
+    if (s.status === 'failed') {
+      expect(s.reason).toBe('The transaction this receipt names did not make this payment.');
+      expect(s.checks.find((c) => c.id === 'tx')).toMatchObject({ label: 'Transaction does not match this payment', status: 'fail' });
+      expect(s.summary?.txCheck).toBe('mismatch');
+    }
+  });
+
+  it('an unchecked transaction is neutral, never a pass', () => {
+    const s = buildVerification(receipt, chain(txUnchecked));
+    expect(s.status).toBe('verified');
+    if (s.status === 'verified') {
+      expect(s.checks.find((c) => c.id === 'tx')).toMatchObject({ label: 'Transaction not checked', status: 'skipped' });
+      expect(s.summary.txCheck).toBe('unchecked');
     }
   });
 
   it('fails when nothing was announced, or the announcement does not match', () => {
-    expect(buildVerification(receipt, { contractId: 'c', announcementCount: 20, announcement: undefined, balanceYocto: 1n }).status).toBe('failed');
+    expect(buildVerification(receipt, { ...chain(txUnchecked, null), balanceYocto: 1n }).status).toBe('failed');
     const other = deriveStealth(META);
-    const s = buildVerification(receipt, { contractId: 'c', announcementCount: 20, announcement: { ...ann, ephemeralPk: other.ephemeralPk }, balanceYocto: 1n });
+    const s = buildVerification(receipt, chain(txMatch, { ...ann, ephemeralPk: other.ephemeralPk }));
     expect(s.status).toBe('failed');
+    if (s.status === 'failed') expect(s.reason).toBe('The on-chain announcement does not match this receipt.');
   });
 
   it('reports unreadable input as invalid', () => {
-    expect(buildVerification('perdereceipt:@@', { contractId: 'c', announcementCount: 0, announcement: undefined, balanceYocto: 0n }).status).toBe('invalid');
+    expect(buildVerification('perdereceipt:@@', { ...chain(txUnchecked, null), announcementCount: 0 }).status).toBe('invalid');
   });
 });
 

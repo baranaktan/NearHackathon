@@ -26,7 +26,7 @@ export const APP_CONFIG = {
    */
   broadcastUrls: ['https://test.rpc.fastnear.com', 'https://near-testnet.drpc.org'] as readonly string[],
   explorerUrl: NETWORKS.testnet.explorerUrl,
-  githubUrl: 'https://github.com/baranaktan/NearHackathon' as string,
+  githubUrl: 'https://github.com/baranaktan/Perde' as string,
   license: 'Apache-2.0',
 };
 

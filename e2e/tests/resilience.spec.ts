@@ -1,6 +1,6 @@
 /** Layout and loading resilience found while reviewing the demo video, plus lazy-chunk failures. */
 import type { Locator } from '@playwright/test';
-import { expect, go, KNOWN_INVOICE_0, test } from '../support/test';
+import { expect, go, KNOWN_INVOICE_0, KNOWN_META, test } from '../support/test';
 
 /** True when every line break inside `el` falls next to whitespace (no word split mid-word). */
 async function wrapsOnlyAtSpaces(el: Locator): Promise<{ ok: boolean; lines: string[] }> {
@@ -65,11 +65,58 @@ test('landing starts loading the guided demo when the CTA is reached for, not be
   await expect(page.getByRole('main').getByLabel('Loading page')).toHaveCount(0);
 });
 
+/*
+ * Regression for the one flaky failure of the full suite (mobile-iphone, navigation spec): WebKit printed
+ * "WalletSetup-….js was preloaded using link preload but not used within a few seconds from the window's
+ * load event". Vite's runtime helper used to add <link rel="modulepreload"> for a lazy page's shared chunks;
+ * when the page chunk itself was still downloading at load + 3 s (the browsers' one-shot unused-preload
+ * check), those links counted as unused. Under load that window was hit by chance; a slow network hits it
+ * every time. This test makes the page chunk slow on purpose so the timing is deterministic.
+ */
+test('entering a lazy page while its chunk is still downloading at load + 3 s prints no unused-preload warning', async ({ page }) => {
+  await go(page, '/app/start');
+  await expect(page.getByRole('heading', { name: 'See it work in a minute', level: 1 })).toBeVisible();
+  await page.waitForLoadState('load');
+  const releaseAt = Date.now() + 4_500;
+  await page.route(/SettingsPage-[\w-]+\.js$/, async (route) => {
+    await new Promise((r) => setTimeout(r, Math.max(0, releaseAt - Date.now())));
+    await route.continue();
+  });
+  await go(page, '/app/settings');
+  await expect(page.getByRole('heading', { name: 'Backstage', level: 1 })).toBeVisible({ timeout: 20_000 });
+  // The page arrived after the browser's check; give a late warning a moment to reach the console listener.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 200))));
+});
+
+test.describe('animation chunk failure', () => {
+  // Only the browser's own report of the aborted download is expected. Deliberately NOT allowed: the unhandled
+  // rejection ("Failed to fetch dynamically imported module" / "Importing a module script failed") the app used to cause.
+  test.use({ allowConsole: /^Failed to load resource|Loading failed for the module with source .*motion-features-/ });
+
+  test('if the animation chunk cannot download, pages still show their content: no animation, no unhandled rejection', async ({ page }) => {
+    await page.route(/motion-features-[\w-]+\.js$/, (route) => route.abort('connectionreset'));
+    // A well-formed receipt whose r does not derive the stealth account: the Verify page shows its (animated) result card.
+    const receipt = 'perdereceipt:' + Buffer.from(JSON.stringify({ v: 1, meta: KNOWN_META, r: '01' + '00'.repeat(31), stealth: 'ab'.repeat(32) })).toString('base64url');
+    await go(page, `/app/verify?${new URLSearchParams({ r: receipt })}`);
+    const heading = page.getByRole('heading', { name: 'Receipt does not check out' });
+    await expect(heading).toBeVisible();
+    // The card fades in when animation is available; without it, it must not stay transparent.
+    const effectiveOpacity = () => heading.evaluate((el) => {
+      let o = 1;
+      for (let e: Element | null = el; e; e = e.parentElement) o *= Number(getComputedStyle(e).opacity);
+      return o;
+    });
+    await expect.poll(effectiveOpacity).toBe(1);
+  });
+});
+
 test.describe('lazy chunk failure', () => {
   // Expected noise: the browser's report of the aborted download, React's own console.error for the error the
   // boundary caught (Firefox prints it as "JSHandle@object"), and Firefox's FOUC warning on the reload.
+  // Firefox words the aborted download as "Loading failed for the module with source …InboxPage…" now that the
+  // chunk is fetched by import() itself instead of a runtime <link rel="modulepreload">.
   test.use({
-    allowConsole: /Failed to load resource|net::ERR_|dynamically imported module|Importing a module script failed|NetworkError|access control checks|JSHandle@object|Layout was forced before the page was fully loaded/i,
+    allowConsole: /Failed to load resource|net::ERR_|dynamically imported module|Importing a module script failed|NetworkError|access control checks|JSHandle@object|Layout was forced before the page was fully loaded|Loading failed for the module with source .*InboxPage-/i,
   });
 
   test('a page chunk that cannot download shows a reload prompt, not a blank app', async ({ page }) => {

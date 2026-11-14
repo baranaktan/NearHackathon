@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, m, useReducedMotion } from 'motion/react';
 import { Check, Eye, ScanLine } from 'lucide-react';
 import { cn } from '../lib/cn';
+import { useMotionUnavailable } from '../lib/motion-status';
 import { Ledger, type LedgerRowData } from '../components/Ledger';
 import { Tabs } from '../ui/Tabs';
 import { VeilMark } from '../ui/AddressChip';
@@ -26,7 +27,10 @@ const rowsFor = (scene: Scene): LedgerRowData[] => [
 const EASE = [0.65, 0, 0.2, 1] as const;
 
 export function LedgerExhibit({ className }: { className?: string }) {
-  const reduce = useReducedMotion();
+  // No curtain choreography with reduced motion, or when the animation code failed to load.
+  const reducedMotion = useReducedMotion();
+  const motionUnavailable = useMotionUnavailable();
+  const reduce = reducedMotion || motionUnavailable;
   const [target, setTarget] = useState<Scene>('public');
   const [scene, setScene] = useState<Scene>('public');
   const [drawn, setDrawn] = useState(false);
@@ -95,7 +99,7 @@ export function LedgerExhibit({ className }: { className?: string }) {
         {/* Scene-change curtain */}
         {(['left', 'right'] as const).map((side) => (
           <m.div
-            key={side}
+            key={motionUnavailable ? `${side}-${String(drawn)}` : side}
             aria-hidden
             initial={false}
             animate={{ scaleX: drawn ? 1 : 0 }}
@@ -131,13 +135,12 @@ function Conclusion({ scene }: { scene: Scene }) {
 }
 
 function AliceView({ visible }: { visible: boolean }) {
-  return (
-    <div className="relative mt-3 min-h-[124px] sm:mt-4">
-      <AnimatePresence mode="wait" initial={false}>
-        {visible ? (
+  // Without the animation code an exit never completes, so "wait" would never show the next view: render it directly.
+  const off = useMotionUnavailable();
+  const view = visible ? (
           <m.div
             key="alice"
-            initial={{ opacity: 0, y: -10 }}
+            initial={off ? false : { opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0, transition: { delay: 0.35, duration: 0.45, ease: EASE } }}
             exit={{ opacity: 0, y: -6, transition: { duration: 0.2 } }}
             className="ml-auto max-w-md rounded-xl border border-brass/40 bg-surface p-4 shadow-lift sm:p-5"
@@ -171,15 +174,23 @@ function AliceView({ visible }: { visible: boolean }) {
         ) : (
           <m.p
             key="hint"
-            initial={{ opacity: 0 }}
+            initial={off ? false : { opacity: 0 }}
             animate={{ opacity: 1, transition: { delay: 0.2 } }}
             exit={{ opacity: 0, transition: { duration: 0.15 } }}
             className="pt-2 text-[13px] text-fg-faint sm:text-right"
           >
             Switch to <span className="text-fg-muted">With Perde</span> to draw the curtain.
           </m.p>
-        )}
-      </AnimatePresence>
+        );
+  return (
+    <div className="relative mt-3 min-h-[124px] sm:mt-4">
+      {off ? (
+        view
+      ) : (
+        <AnimatePresence mode="wait" initial={false}>
+          {view}
+        </AnimatePresence>
+      )}
     </div>
   );
 }

@@ -135,7 +135,9 @@ export {
   type ClaimOptions,
   type ClaimResult,
   type ClaimStatus,
+  type ReceiptVerificationOnChain,
 } from './perde/client.js';
+export { matchReceiptTransaction, isTxHash, type ReceiptTxCheck, type ReceiptTxExpectation } from './perde/receipt-tx.js';
 
 export {
   SputnikDao,

@@ -77,6 +77,7 @@ export async function claimAll(page: Page): Promise<number> {
     if (n === 0) break;
     await buttons.first().click();
     const dialog = page.getByRole('dialog');
+    await dialog.locator('button.rounded-full').first().click(); // the destination starts empty; take the suggested demo wallet
     await expect(dialog.getByText('Destination receives about')).toBeVisible({ timeout: 30_000 });
     await dialog.getByRole('button', { name: 'Claim', exact: true }).click();
     await expect(dialog).toBeHidden();

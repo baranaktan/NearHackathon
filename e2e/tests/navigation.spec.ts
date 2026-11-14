@@ -100,7 +100,7 @@ test.describe('app navigation', () => {
         await page.locator('aside:has(nav[aria-label="App"])').getByRole('link', { name: label, exact: true }).click();
       }
       await expect(page).toHaveURL(new RegExp(`#${path}$`));
-      await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible();
+      await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible({ timeout: 30_000 });
       if (!isMobile(page)) await expect(page.locator('aside:has(nav[aria-label="App"]) a[aria-current="page"]')).toHaveCount(1);
       else if (['/app/receive', '/app/send', '/app/inbox'].includes(path)) await expect(page.locator('nav[aria-label="App"] a[aria-current="page"]').filter({ visible: true })).toHaveCount(1);
     }

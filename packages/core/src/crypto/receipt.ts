@@ -21,6 +21,12 @@ export interface ReceiptData {
   readonly stealth: string;
   /** Transaction hash (base58) of the payment, if known. */
   readonly tx?: string;
+  /**
+   * Signer of that transaction (receipts made since 2026-11-14). Only a lookup
+   * hint for the `tx` RPC, and checked against the transaction; it reveals
+   * nothing the public transaction does not already show. Older receipts lack it.
+   */
+  readonly from?: string;
 }
 
 export interface ReceiptVerification {
@@ -37,6 +43,8 @@ export function createReceipt(params: {
   r: bigint;
   stealthAccountId: string;
   tx?: string;
+  /** Signer of `tx` (see `ReceiptData.from`); ignored without `tx`. */
+  from?: string;
 }): string {
   const meta = typeof params.meta === 'string' ? encodeMetaAddress(decodeMetaAddress(params.meta)) : encodeMetaAddress(params.meta);
   const derived = deriveStealth(meta, params.r);
@@ -49,6 +57,7 @@ export function createReceipt(params: {
     r: scalarToHex(params.r),
     stealth: params.stealthAccountId,
     ...(params.tx !== undefined ? { tx: params.tx } : {}),
+    ...(params.tx !== undefined && params.from !== undefined ? { from: params.from } : {}),
   };
   return RECEIPT_PREFIX + base64urlnopad.encode(utf8ToBytes(JSON.stringify(data)));
 }
@@ -68,13 +77,14 @@ export function decodeReceipt(receipt: string): ReceiptData {
     throw new PerdeError('INVALID_ENCODING', 'receipt is not base64url JSON', e);
   }
   if (!isRecord(parsed)) throw new PerdeError('INVALID_RECEIPT', 'receipt payload must be an object');
-  const { v, meta, r, stealth, tx } = parsed;
+  const { v, meta, r, stealth, tx, from } = parsed;
   if (v !== 1) throw new PerdeError('INVALID_RECEIPT', 'unsupported receipt version');
   if (typeof meta !== 'string' || typeof r !== 'string' || typeof stealth !== 'string') {
     throw new PerdeError('INVALID_RECEIPT', 'receipt fields meta, r, stealth must be strings');
   }
   if (tx !== undefined && typeof tx !== 'string') throw new PerdeError('INVALID_RECEIPT', 'receipt tx must be a string');
-  return { v: 1, meta, r, stealth, ...(tx !== undefined ? { tx } : {}) };
+  if (from !== undefined && typeof from !== 'string') throw new PerdeError('INVALID_RECEIPT', 'receipt from must be a string');
+  return { v: 1, meta, r, stealth, ...(tx !== undefined ? { tx } : {}), ...(from !== undefined ? { from } : {}) };
 }
 
 /**

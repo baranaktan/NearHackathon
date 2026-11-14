@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { m } from 'motion/react';
 import { Eye } from 'lucide-react';
 import { cn } from '../lib/cn';
+import { useMotionUnavailable } from '../lib/motion-status';
 
 export interface CurtainRevealProps {
   revealed: boolean;
@@ -36,6 +37,8 @@ export function CurtainReveal({
   rounded = 'rounded-xl',
 }: CurtainRevealProps) {
   const gathered = frame ? 0.035 : 0;
+  // Without the animation code an m element keeps the styles it mounted with, so remount the panels in their new position.
+  const off = useMotionUnavailable();
   return (
     <div className={cn('relative isolate overflow-hidden', rounded, className)}>
       <div inert={!revealed} aria-hidden={!revealed || undefined} className={cn('transition-opacity duration-500', !revealed && 'opacity-0')}>
@@ -44,7 +47,7 @@ export function CurtainReveal({
 
       {(['left', 'right'] as const).map((side) => (
         <m.div
-          key={side}
+          key={off ? `-` : side}
           aria-hidden
           initial={false}
           animate={{ scaleX: revealed ? gathered : 1, opacity: revealed && !frame ? 0 : 1 }}

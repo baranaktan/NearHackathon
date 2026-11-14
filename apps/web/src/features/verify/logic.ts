@@ -1,5 +1,5 @@
 /** Turn core's receipt verification into the checklist the Verify page shows. */
-import { decodeReceipt, verifyReceipt, type Announcement, type ReceiptData } from '@perde/core';
+import { decodeReceipt, verifyReceipt, type Announcement, type ReceiptData, type ReceiptTxCheck } from '@perde/core';
 import { formatYocto, truncateMiddle } from '../../lib/near-format';
 import type { ReceiptSummary, VerifyCheck, VerifyState } from './types';
 
@@ -8,6 +8,29 @@ export interface OnChain {
   announcementCount: number;
   announcement: Announcement | undefined;
   balanceYocto: bigint;
+  /** The receipt's `tx` checked against the chain by core (`PerdeClient.verifyReceipt`). */
+  transaction: ReceiptTxCheck;
+}
+
+function txCheck(tx: ReceiptTxCheck, contractId: string): VerifyCheck {
+  const hash = (h: string | undefined) => (h ? `${truncateMiddle(h, 8, 8)} · ` : '');
+  switch (tx.status) {
+    case 'match':
+      return {
+        id: 'tx',
+        label: 'Transaction matches',
+        detail:
+          `${hash(tx.txHash)}signed by ${tx.signerId} · ` +
+          (tx.via === 'perde'
+            ? `paid ${formatYocto(tx.amountYocto)} NEAR into the stealth account through ${contractId}${tx.announcementIndex !== undefined ? ` (announcement #${tx.announcementIndex})` : ''}`
+            : `plain transfer of ${formatYocto(tx.amountYocto)} NEAR into the stealth account`),
+        status: 'pass',
+      };
+    case 'mismatch':
+      return { id: 'tx', label: 'Transaction does not match this payment', detail: `${hash(tx.txHash)}${tx.reason}`, status: 'fail' };
+    case 'unchecked':
+      return { id: 'tx', label: 'Transaction not checked', detail: `${hash(tx.txHash)}${tx.reason}`, status: 'skipped' };
+  }
 }
 
 export function parseReceipt(text: string): { ok: true; data: ReceiptData } | { ok: false; message: string } {
@@ -53,6 +76,7 @@ export function buildVerification(receipt: string, chain: OnChain): VerifyState 
       detail: ann && matched ? (matched.valid ? `ephemeral_pk ${truncateMiddle(ann.ephemeralPk, 8, 8)} · view_tag ${ann.viewTag}` : (matched.reason ?? 'mismatch')) : 'needs the announcement',
       status: ann && matched ? (matched.valid ? 'pass' : 'fail') : 'skipped',
     },
+    txCheck(chain.transaction, chain.contractId),
     {
       id: 'balance',
       label: 'Stealth account today',
@@ -65,14 +89,17 @@ export function buildVerification(receipt: string, chain: OnChain): VerifyState 
     stealthAccount: data.stealth,
     amountYocto: ann ? ann.amount.toString() : null,
     txHash: data.tx ?? null,
+    txCheck: chain.transaction.status,
     timestampMs: ann?.timestampMs ?? null,
   };
-  const ok = offline.valid && !!ann && !!matched?.valid;
+  const ok = offline.valid && !!ann && !!matched?.valid && chain.transaction.status !== 'mismatch';
   if (ok) return { status: 'verified', summary, checks };
   const reason = !offline.valid
     ? 'The stealth account in this receipt does not derive from the stated meta-address.'
     : !ann
       ? 'No on-chain announcement exists for this stealth account, so the receipt proves no Perde payment.'
-      : 'The on-chain announcement does not match this receipt.';
+      : !matched?.valid
+        ? 'The on-chain announcement does not match this receipt.'
+        : 'The transaction this receipt names did not make this payment.';
   return { status: 'failed', summary, reason, checks };
 }

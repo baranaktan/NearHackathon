@@ -1,7 +1,7 @@
 import { PerdeError } from '../errors.js';
 import { decodeMetaAddress, decodeViewingKey, encodeMetaAddress } from '../crypto/encoding.js';
 import type { MetaAddress, SpendKeys, ViewKeys } from '../crypto/keys.js';
-import { createReceipt, type ReceiptVerification, verifyReceipt } from '../crypto/receipt.js';
+import { createReceipt, type ReceiptData, type ReceiptVerification, verifyReceipt } from '../crypto/receipt.js';
 import {
   type AnnouncementLike,
   deriveInvoice,
@@ -12,9 +12,10 @@ import {
   type StealthDerivation,
   type StealthMatch,
 } from '../crypto/stealth.js';
-import { assertAccountId, isImplicitAccountId } from '../near/accountId.js';
+import { assertAccountId, isImplicitAccountId, isValidAccountId } from '../near/accountId.js';
 import { explorerAccountUrl, explorerTxUrl, NETWORKS, type NetworkId } from '../near/network.js';
-import { type FetchFn, NearRpc, type ProtocolFeeConfig, type TxOutcome, type WaitForTransactionOptions, type WaitUntil } from '../near/rpc.js';
+import { type FetchFn, NearRpc, type ProtocolFeeConfig, RpcError, type TxOutcome, type WaitForTransactionOptions, type WaitUntil } from '../near/rpc.js';
+import { isTxHash, matchReceiptTransaction, type ReceiptTxCheck } from './receipt-tx.js';
 import { sendActions } from '../near/send.js';
 import { ScalarSigner, type Signer } from '../near/signer.js';
 import { type Action, deleteAccount, functionCall, transfer } from '../near/transaction.js';
@@ -185,6 +186,29 @@ export interface ClaimResult {
   readonly outcome: TxOutcome;
 }
 
+export interface ReceiptVerificationOnChain extends ReceiptVerification {
+  readonly announced: boolean;
+  readonly announcement?: Announcement;
+  readonly balance?: bigint;
+  /** The receipt's `tx` checked against the chain. */
+  readonly transaction: ReceiptTxCheck;
+}
+
+type TxLookup =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'malformed' }
+  | { readonly kind: 'unknown' }
+  | { readonly kind: 'unavailable'; readonly message: string }
+  | { readonly kind: 'found'; readonly raw: unknown };
+
+/** A lookup that misses a payment announced this recently may just be a lagging node. */
+const TX_VISIBLE_GRACE_MS = 2 * 60_000;
+/**
+ * Public testnet nodes keep 5 epochs (43 200 blocks of ~0.6 s ≈ 36 h, measured
+ * 2026-11-14); below 24 h an unknown transaction is really unknown.
+ */
+const TX_RETENTION_MS = 24 * 3_600_000;
+
 const MAX_PAGE = 200;
 const MAX_TX_GAS = tgas(300);
 const REGISTER_DEPOSIT = 10_000_000_000_000_000_000_000n; // 0.01 NEAR, excess refunded by the contract
@@ -325,7 +349,7 @@ export class PerdeClient {
     return {
       txHash: outcome.hash,
       explorerUrl: this.txUrl(outcome.hash),
-      receipt: createReceipt({ meta, r: stealth.r, stealthAccountId: stealth.stealthAccountId, tx: outcome.hash }),
+      receipt: createReceipt({ meta, r: stealth.r, stealthAccountId: stealth.stealthAccountId, tx: outcome.hash, from: senderId }),
       stealthAccountId: stealth.stealthAccountId,
       ephemeralPk: stealth.ephemeralPk,
       viewTag: stealth.viewTag,
@@ -376,7 +400,7 @@ export class PerdeClient {
         ephemeralPk: p.stealth.ephemeralPk,
         viewTag: p.stealth.viewTag,
         amountYocto: p.amount,
-        receipt: createReceipt({ meta: p.meta, r: p.stealth.r, stealthAccountId: p.stealth.stealthAccountId, tx: outcome.hash }),
+        receipt: createReceipt({ meta: p.meta, r: p.stealth.r, stealthAccountId: p.stealth.stealthAccountId, tx: outcome.hash, from: senderId }),
       })),
     };
   }
@@ -534,12 +558,20 @@ export class PerdeClient {
 
   /**
    * Receipt verification against chain state: offline check, then the
-   * matching announcement (if any) and the stealth account's balance.
+   * matching announcement (if any), the stealth account's balance and, when
+   * the receipt names a transaction (`tx`), that transaction (see
+   * `matchReceiptTransaction`). A `tx` that does not make this payment makes
+   * the receipt invalid; a `tx` that could not be read is reported as
+   * `unchecked`, never as a match.
    */
-  async verifyReceipt(receipt: string): Promise<ReceiptVerification & { announced: boolean; announcement?: Announcement; balance?: bigint }> {
+  async verifyReceipt(receipt: string, options: { now?: number } = {}): Promise<ReceiptVerificationOnChain> {
     const offline = verifyReceipt(receipt);
-    if (!offline.valid || offline.stealthAccountId === undefined) return { ...offline, announced: false };
+    if (!offline.valid || offline.stealthAccountId === undefined || offline.data === undefined) {
+      return { ...offline, announced: false, transaction: { status: 'unchecked', reason: 'the receipt itself does not check out' } };
+    }
+    const data = offline.data;
     const stealthId = offline.stealthAccountId;
+    const txLookup = this.#lookupReceiptTransaction(data);
     let announcement: Announcement | undefined;
     if (this.contractId !== undefined) {
       for await (const ann of this.iterateAnnouncements(0)) {
@@ -549,9 +581,64 @@ export class PerdeClient {
         }
       }
     }
-    const balance = await this.rpc.getBalance(stealthId);
-    if (announcement === undefined) return { ...offline, announced: false, balance };
-    return { ...verifyReceipt(receipt, announcement), announced: true, announcement, balance };
+    const [balance, lookup] = await Promise.all([this.rpc.getBalance(stealthId), txLookup]);
+    const transaction = this.#judgeReceiptTransaction(data, offline, lookup, announcement, options.now ?? Date.now());
+    const base = announcement === undefined ? { ...offline, announced: false } : { ...verifyReceipt(receipt, announcement), announced: true, announcement };
+    if (transaction.status === 'mismatch' && base.valid) {
+      return { ...base, valid: false, reason: `transaction ${transaction.txHash} does not match this payment: ${transaction.reason}`, balance, transaction };
+    }
+    return { ...base, balance, transaction };
+  }
+
+  /** Read the receipt's `tx` with receipts (`EXPERIMENTAL_tx_status`); never throws. */
+  async #lookupReceiptTransaction(data: ReceiptData): Promise<TxLookup> {
+    const hash = data.tx;
+    if (hash === undefined) return { kind: 'none' };
+    if (!isTxHash(hash)) return { kind: 'malformed' };
+    // The RPC routes the lookup by the signer's shard. Nodes that track every shard (the public
+    // testnet RPCs) answer for any valid account id; the receipt's `from` is the exact signer.
+    const hint = data.from !== undefined && isValidAccountId(data.from) ? data.from : (this.contractId ?? data.stealth);
+    try {
+      return { kind: 'found', raw: await this.rpc.call<unknown>('EXPERIMENTAL_tx_status', { tx_hash: hash, sender_account_id: hint, wait_until: 'NONE' }) };
+    } catch (e) {
+      if (e instanceof RpcError && e.causeName === 'UNKNOWN_TRANSACTION') return { kind: 'unknown' };
+      return { kind: 'unavailable', message: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  #judgeReceiptTransaction(data: ReceiptData, offline: ReceiptVerification, lookup: TxLookup, announcement: Announcement | undefined, now: number): ReceiptTxCheck {
+    const txHash = data.tx;
+    switch (lookup.kind) {
+      case 'none':
+        return { status: 'unchecked', reason: 'the receipt names no transaction' };
+      case 'malformed':
+        return { status: 'mismatch', txHash: txHash ?? '', reason: 'this is not a NEAR transaction hash' };
+      case 'unavailable':
+        return { status: 'unchecked', ...(txHash !== undefined ? { txHash } : {}), reason: `the RPC could not look the transaction up (${lookup.message.slice(0, 160)})` };
+      case 'unknown': {
+        const hash = txHash ?? '';
+        // Public (non-archival) nodes forget transactions after a few epochs (~1.5 days on testnet),
+        // and a node may lag the block for a moment, so "unknown" proves a mismatch only in between.
+        const age = announcement === undefined ? undefined : now - announcement.timestampMs;
+        if (age !== undefined && age >= TX_VISIBLE_GRACE_MS && age < TX_RETENTION_MS) {
+          return { status: 'mismatch', txHash: hash, reason: `testnet has no transaction with this hash, although the payment was announced only ${Math.max(1, Math.round(age / 3_600_000))} h ago` };
+        }
+        return {
+          status: 'unchecked',
+          txHash: hash,
+          reason: age !== undefined && age < TX_VISIBLE_GRACE_MS ? 'the RPC does not show this transaction yet; verify again in a minute' : 'the RPC does not have this transaction (public nodes keep about 1.5 days of history)',
+        };
+      }
+      case 'found':
+        return matchReceiptTransaction(lookup.raw, {
+          txHash: txHash ?? '',
+          stealthAccountId: data.stealth,
+          ephemeralPk: offline.ephemeralPk ?? '',
+          viewTag: offline.viewTag ?? -1,
+          ...(this.contractId !== undefined ? { contractId: this.contractId } : {}),
+          ...(data.from !== undefined ? { signerId: data.from } : {}),
+        });
+    }
   }
 
   /**

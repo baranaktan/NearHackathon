@@ -113,7 +113,7 @@ const reasons: Array<{ primitive: string; body: ReactNode; gives: string }> = [
   },
   {
     primitive: 'Contract view calls',
-    body: 'Announcements live in a small, ownerless contract and are paged with free RPC view calls straight from the browser.',
+    body: 'Announcements live in a small contract with no owner or admin methods and are paged with free RPC view calls straight from the browser.',
     gives: 'No indexer',
   },
   {
@@ -226,6 +226,7 @@ const visible = [
     title: 'Where claimed funds go',
     body: 'Claiming to alice.near links the two accounts. Claim to a fresh account, or pay onward straight from the stealth account without ever claiming, to keep the curtain closed.',
   },
+  { title: 'What it costs', body: 'Each private payment creates a new account, so it costs about 0.009 NEAR more than a plain transfer.' },
 ];
 
 export function PrivacyHonest() {

@@ -17,6 +17,13 @@ export function useVerify(): VerifyModel {
   const [state, setState] = useState<VerifyState>({ status: 'idle' });
   const runId = useRef(0);
 
+  // Following another `?r=` link while this page is open: show that receipt in the field (the effect below verifies it).
+  const [linked, setLinked] = useState(fromLink);
+  if (fromLink !== linked) {
+    setLinked(fromLink);
+    if (fromLink) setInput(fromLink);
+  }
+
   const verify = useCallback(async (text: string) => {
     const v = text.trim();
     const parsed = parseReceipt(v);
@@ -29,7 +36,15 @@ export function useVerify(): VerifyModel {
     try {
       const [onChain, count] = await Promise.all([perde.verifyReceipt(v), perde.announcementCount()]);
       if (id !== runId.current) return;
-      setState(buildVerification(v, { contractId: APP_CONFIG.contractId, announcementCount: count, announcement: onChain.announcement, balanceYocto: onChain.balance ?? 0n }));
+      setState(
+        buildVerification(v, {
+          contractId: APP_CONFIG.contractId,
+          announcementCount: count,
+          announcement: onChain.announcement,
+          balanceYocto: onChain.balance ?? 0n,
+          transaction: onChain.transaction,
+        }),
+      );
     } catch (e) {
       if (id === runId.current) setState({ status: 'error', message: errorText(e, 'verify') });
     }
