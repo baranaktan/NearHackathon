@@ -27,3 +27,15 @@ e2e/.app-dist-testnet/
 e2e/test-results/
 e2e/playwright-report/
 e2e/.lighthouse/
+
+# internal working notes (kept locally, not part of the submission)
+/HACKATHON.md
+/DECISIONS.md
+/PLAN.md
+/PROGRESS.md
+/DEMO.md
+/docs/HACKATHON_NOTES.md
+/docs/SUBMISSION_DRAFT.md
+/docs/JURY_LOG.md
+/docs/research/
+/docs/qa/independent-test-report.md
