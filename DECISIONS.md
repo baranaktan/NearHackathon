@@ -15,6 +15,7 @@ Orkestratörün kendi başına verdiği kararlar, gerekçesiyle. Yeni kararlar e
 | 9 | Kontrat testleri: Rust unit testleri + testnet'e karşı entegrasyon testi. | near-sandbox / near-workspaces Windows'ta çalışmıyor; Docker yok. |
 | 10 | `cargo-near` proje içine kurulur (`cargo install --root .tools`), `near-cli-rs` gerekirse devDependency. | Global kurulum yasağı (güvenlik kuralı 3). Docs'taki `irm … \| iex` ve `npm i -g` önerileri uygulanmadı (kural 9). |
 | 11 | Track'ler: `privacy`, `realworld`, `open`. | Gizli finans (privacy), fatura + toplu ödeme (realworld), kategori dışı primitif (open). |
+| 16 | Konumlandırma primitiften kullanım senaryosuna çevrildi: "DAO'lar ve ekipler için gizli maaş ve fatura". SputnikDAO önerisiyle gizli ödeme akışı (T10) eklendi; track listesine `social` eklendi. | Stealth adres bilinen bir primitif ve NEAR'ın Confidential Intents'i var; jüriye "neden kullanayım" cevabı gerekiyor. DAO ödemelerinde alıcı adının açık olması somut bir sorun; Sputnik `FunctionCall` önerisi ucuz bir entegrasyon. |
 | 12 | Lisans Apache-2.0; arayüz ve dokümanlar İngilizce. | Jüri ve AI eleyici İngilizce okuyor; Q-014 herhangi bir lisansa izin veriyor. |
 | 13 | Commit'lerde AI imzası yok; README'de kütüphaneler ve AI yardımıyla geliştirme açıkça listelenir. | Kullanıcı talimatı + Q-005. |
 | 14 | GitHub repo adı değiştirilmedi. | `gh` ve API erişimi yok; kimlik bilgisi yöneticisinden token çıkarmak güvenlik kurallarının ruhuna aykırı. Kullanıcı Settings → Rename ile değiştirebilir (GitHub eski URL'yi yönlendirir); başvurudan **önce** yapılmalı. |

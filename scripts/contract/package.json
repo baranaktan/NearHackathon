@@ -1,0 +1,20 @@
+{
+  "name": "perde-contract-scripts",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Build, deploy and smoke-test the Perde contract on NEAR testnet",
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "deploy": "node deploy.mjs",
+    "deploy:fresh": "node deploy.mjs --fresh",
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "binaryen": "132.0.0",
+    "near-api-js": "7.5.3"
+  }
+}

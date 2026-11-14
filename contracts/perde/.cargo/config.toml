@@ -1,0 +1,10 @@
+# Plain-cargo wasm build settings, equivalent to what `cargo near build` passes:
+# strip symbols and enable the on-chain host-function path of near-sdk (>= 5.27 needs `--cfg near`).
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-s", "--cfg", "near"]
+
+[env]
+# Unit tests pull in aws-lc-sys (via near-sdk's `unit-testing` feature). On Windows this uses
+# the prebuilt NASM objects shipped with the crate so NASM does not need to be installed.
+# Ignored on other platforms.
+AWS_LC_SYS_PREBUILT_NASM = "1"

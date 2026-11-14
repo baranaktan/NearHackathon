@@ -1,0 +1,22 @@
+{
+  "name": "perde",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Perde — private payments on NEAR. Stealth addresses that are ordinary NEAR implicit accounts.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "setup": "npm --prefix packages/core ci && npm --prefix packages/core run build && npm --prefix apps/web ci",
+    "dev": "npm --prefix apps/web run dev",
+    "build": "npm --prefix packages/core run build && npm --prefix apps/web run build",
+    "preview": "npm --prefix apps/web run preview",
+    "lint": "npm --prefix packages/core run lint && npm --prefix apps/web run lint",
+    "typecheck": "npm --prefix packages/core run typecheck && npm --prefix apps/web run typecheck",
+    "test": "npm --prefix packages/core test && npm --prefix apps/web test",
+    "test:contract": "cargo test --manifest-path contracts/perde/Cargo.toml",
+    "test:testnet": "npm --prefix packages/core run test:testnet"
+  }
+}

@@ -85,6 +85,7 @@ npm workspaces (`packages/*`, `apps/*`). Node ≥ 22.
 | T6 Invoice + 1Click "pay from any chain" paneli (dry quote) | opus | Fatura linki; gerçek dry quote; QR; açık "preview" etiketi |
 | T7 Auditor görünümü + receipt doğrulama | sonnet | Viewing key ile salt-okunur liste; receipt doğrulama sayfası |
 | T8 Batch payroll (CSV, tek işlemde çok action) | sonnet | CSV → tek tx, satır başına sonuç |
+| T10 DAO'dan gizli ödeme (SputnikDAO `sputnikv2.testnet`): demo DAO oluştur, `FunctionCall` önerisi kontratın `send` metodunu çağırır, oylama sonrası ödeme stealth hesaba düşer | opus | Testnet'te gerçek DAO + öneri + onay tx linkleri; arayüzde "Pay from a DAO" akışı; `social` track kanıtı |
 | T9 Cüzdan bağlama (`@hot-labs/near-connect`) | sonnet | Gerçek testnet cüzdanıyla send; çalışmazsa kaldırılır (stub bırakılmaz) |
 
 ### M4 — Test, doküman, demo, jüri

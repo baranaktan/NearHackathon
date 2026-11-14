@@ -1,0 +1,7 @@
+{
+  "network": "testnet",
+  "contractId": "perde-pay.testnet",
+  "deployTx": "2nnVFxqQKCWyzdTbNyTizjfiX7k4S4TWUGpK9VYW8L9S",
+  "deployedAt": "2026-11-14T00:18:58.413Z",
+  "wasmSha256": "6f9b7ebb58a4c40b21682118682df28653e312162c261a8358ce122a514b345d"
+}

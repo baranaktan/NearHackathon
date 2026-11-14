@@ -1,0 +1,69 @@
+{
+  "note": "Real 1Click dry quote (dry:true, no API key) from @perde/core quoteToStealth: USDC on Arbitrum -> exactly 1 NEAR delivered on NEAR to a fresh Perde stealth implicit account. Dry quotes create no deposit address and move no funds.",
+  "requestedAt": "2026-11-14T00:20:55.431Z",
+  "endpoint": "POST https://1click.chaindefuser.com/v0/quote",
+  "tokenListSize": 231,
+  "nearAsset": {
+    "assetId": "nep141:wrap.near",
+    "decimals": 24,
+    "blockchain": "near",
+    "symbol": "wNEAR",
+    "price": 3.46,
+    "priceUpdatedAt": "2026-11-14T00:20:00.662Z",
+    "contractAddress": "wrap.near",
+    "coingeckoId": "wrapped-near"
+  },
+  "originAssetInfo": {
+    "assetId": "nep141:arb-0xaf88d065e77c8cc2239327c5edb3a432268e5831.omft.near",
+    "decimals": 6,
+    "blockchain": "arb",
+    "symbol": "USDC",
+    "price": 0.99951,
+    "priceUpdatedAt": "2026-11-14T00:20:00.662Z",
+    "contractAddress": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+    "coingeckoId": "usd-coin"
+  },
+  "stealthAccountId": "a0727a56acc752384e2f84f2371c8a065c64b8405f79c90f2d64fe6d09c8b396",
+  "response": {
+    "quote": {
+      "amountIn": "3507578",
+      "amountInFormatted": "3.507578",
+      "amountInUsd": "3.505859286780",
+      "minAmountIn": "3472502",
+      "amountOut": "1000000000000000000000000",
+      "amountOutFormatted": "1.0",
+      "amountOutUsd": "3.460000000000",
+      "minAmountOut": "1000000000000000000000000",
+      "timeEstimate": 27,
+      "refundFee": "5300",
+      "withdrawFee": "0"
+    },
+    "quoteRequest": {
+      "dry": true,
+      "depositMode": "SIMPLE",
+      "swapType": "EXACT_OUTPUT",
+      "slippageTolerance": 100,
+      "originAsset": "nep141:arb-0xaf88d065e77c8cc2239327c5edb3a432268e5831.omft.near",
+      "depositType": "ORIGIN_CHAIN",
+      "destinationAsset": "nep141:wrap.near",
+      "amount": "1000000000000000000000000",
+      "refundTo": "0x2527D02599Ba641c19FEa793cD0F167589a0f10D",
+      "refundType": "ORIGIN_CHAIN",
+      "recipient": "a0727a56acc752384e2f84f2371c8a065c64b8405f79c90f2d64fe6d09c8b396",
+      "recipientType": "DESTINATION_CHAIN",
+      "deadline": "2026-11-14T00:50:55.432Z",
+      "confidentiality": "public",
+      "quoteWaitingTimeMs": 0,
+      "insured": false,
+      "appFees": [
+        {
+          "recipient": "5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd",
+          "fee": 20
+        }
+      ]
+    },
+    "signature": "ed25519:2dMRdYfNF2SUEx47Lxf3gnqHtH6G8ps43pJqjqGFyP2K8pJs6i3ZpsnG8hijfD75D3ecGxNrmhx1SX79b5n8J2p9",
+    "timestamp": "2026-11-14T00:20:55.925Z",
+    "correlationId": "830f3229-36f0-411b-a2d8-67e0e2eef557"
+  }
+}
