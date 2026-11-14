@@ -1,14 +1,71 @@
-# Perde — private payments on NEAR
+<div align="center">
 
-*Perde* is Turkish for "curtain".
+<img src="apps/web/public/favicon.svg" alt="Perde logo" width="72" height="72">
 
-**Live demo:** https://perde-live.vercel.app  ·  **Demo post:** https://x.com/YOUR-POST  ·  **Video:** [`demo/demo.mp4`](demo/demo.mp4)
+# Perde
 
-**Problem.** Every payment on NEAR names its recipient. When a DAO pays a contributor, a team runs payroll or a freelancer gets an invoice paid, anyone can read who was paid, how much, and everything else that account holds.
+**Private payments on NEAR.**
+Every payment lands in a fresh account that only the recipient can find and spend.
 
-**Product.** With Perde you publish one **meta-address**, or register it under your NEAR name. Every payment to it lands in a brand-new **stealth account** that only you can find and spend. The chain shows that someone was paid. It does not show who.
+[![Live demo](https://img.shields.io/badge/live%20demo-perde--live.vercel.app-b3122d?style=flat-square)](https://perde-live.vercel.app)
+[![Network](https://img.shields.io/badge/network-NEAR%20testnet-c4a46a?style=flat-square)](https://testnet.nearblocks.io/address/perde-pay.testnet)
+[![License](https://img.shields.io/badge/license-Apache--2.0-informational?style=flat-square)](LICENSE)
+[![Status](https://img.shields.io/badge/status-unaudited%20prototype-lightgrey?style=flat-square)](#limitations)
 
-**How NEAR fits in.** A NEAR implicit account id is an ed25519 public key written as 64 hex characters, and a transfer to it creates the account. So a stealth public key *is* a NEAR account:
+[Live demo](https://perde-live.vercel.app) · [Video](demo/demo.mp4) · [Protocol & threat model](docs/PROTOCOL.md) · [QA report](docs/QA_REPORT.md)
+
+<br>
+
+<img src="docs/screenshots/landing.png" alt="Perde landing page: the same payment on a block explorer, without and with Perde" width="860">
+
+</div>
+
+*Perde* is Turkish for "curtain". Built at NEAR HACKATHON (2026-11-01 to 2026-11-14). Tracks: `privacy`, `social`, `realworld`, `open`.
+
+## Contents
+
+- [The problem](#the-problem)
+- [How it works](#how-it-works)
+- [Why NEAR](#why-near)
+- [Try it](#try-it)
+- [Features](#features)
+- [Video and screenshots](#video-and-screenshots)
+- [What is and is not private](#what-is-and-is-not-private)
+- [How it compares](#how-it-compares)
+- [Limitations](#limitations)
+- [Verify from source](#verify-from-source)
+- [Repository layout](#repository-layout)
+- [Built with](#built-with)
+- [License](#license)
+
+## The problem
+
+Every payment on NEAR names its recipient. When a DAO pays a contributor, a team runs payroll or a freelancer gets an invoice paid, anyone can read who was paid, how much, and everything else that account holds.
+
+## How it works
+
+The recipient publishes one **meta-address**, or registers it under a NEAR name such as `alice.testnet`. Each payment to it lands in a brand-new **stealth account**. The chain shows that someone was paid; it does not show who.
+
+```
+ Recipient (browser)                 Sender (browser, DAO or script)          NEAR testnet
+ ───────────────────                 ───────────────────────────────          ────────────
+ 12 words → k_spend, k_view
+ meta-address = K_spend ‖ K_view ──► r random, R = r·G
+                                     P = K_spend + H(r·K_view)·G
+                                     send(hex(P), R, view_tag) + amount ───►  perde-pay.testnet
+                                                                              ├─ stores {hex(P), R, tag, amount}
+                                                                              └─ Transfer → account hex(P) (created)
+ get_announcements (view call) ◄──────────────────────────────────────────────┘
+ for each: k_view·R → same P?  → "mine"
+ p = k_spend + H(k_view·R)
+ sign with p as account hex(P) ──────────────────────────────────────────────► pay onward, or Transfer / DeleteAccount → destination
+```
+
+The full derivation, encodings and threat model are in [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+
+## Why NEAR
+
+A NEAR implicit account id is an ed25519 public key written as 64 hex characters, and a transfer to it creates the account. A stealth public key *is* a NEAR account, so the usual machinery is not needed:
 
 | Usually needed for stealth payments | On NEAR |
 | --- | --- |
@@ -17,22 +74,18 @@
 | An indexer to find payments | Not needed. Announcements are read with contract view calls over public RPC. |
 | A backend | Not needed. The app is a static site; keys stay in the browser. |
 
-On top of that primitive Perde uses NEAR named accounts (pay `alice.testnet` privately), batched actions (payroll in one transaction), SputnikDAO (a treasury pays a contributor without naming them) and NEAR Intents 1Click (quote a payment from another chain into a stealth account).
+Perde also uses NEAR named accounts (pay `alice.testnet` privately), batched actions (payroll in one transaction), SputnikDAO (a treasury pays a contributor without naming them) and NEAR Intents 1Click (quote a payment from another chain into a stealth account).
 
-Status: research prototype, unaudited, **NEAR testnet only**. Built at NEAR HACKATHON (2026-11-01 to 2026-11-14). Tracks: `privacy`, `social`, `realworld`, `open`.
+## Try it
 
-![Landing page](docs/screenshots/landing.png)
+No wallet, no install, no funds. The live demo creates a throwaway testnet account for you. Steps 3 and 6–10 send real NEAR testnet transactions; nothing is simulated.
 
-## Try it (live, in the browser)
-
-No wallet, no install, no funds. The app creates a throwaway testnet account for you. Steps 3 and 6–10 send real NEAR testnet transactions; nothing is simulated.
-
-1. Open the live demo. On the landing page, toggle **Without Perde / With Perde** — you see the same payment as a block explorer shows it, before and after.
+1. Open **https://perde-live.vercel.app**. Toggle **Without Perde / With Perde** — you see the same payment as a block explorer shows it, before and after.
 2. Click **See it work in a minute** — you see the guided demo checklist: six steps plus bonus tours.
 3. Click **Run steps 1–4** — the app creates a testnet wallet from the public faucet, creates your identity, sends 0.05 NEAR to your own meta-address and scans for it. Each tick comes from chain state and carries a transaction link.
 4. Open **Inbox** — you see the 0.05 NEAR payment and the 64-hex stealth account that holds it.
 5. Click **Chain view** on that payment — you see what any observer can read (the transaction, the contract call, the announcement) next to what only you know.
-6. Click **Pay someone from here**, choose **My own address**, send 0.02 NEAR — the stealth account signs the payment itself; your wallet is not involved, and a second payment appears in the Inbox.
+6. Click **Pay someone from here**, choose **My own address**, send 0.02 NEAR — the stealth account signs the payment itself, your wallet is not involved, and a second payment appears in the Inbox.
 7. Click **Claim to…** on a payment and enter a destination — you see the claim transaction, signed in the browser by the stealth account.
 8. Open **DAO payout**, click **Propose payout**, then **Approve & execute** — you see the public SputnikDAO proposal, which contains no recipient, and the payout arrives in your Inbox.
 9. Open **Invoice**, create an invoice for 0.5 NEAR, pick *USDC · Ethereum* under **Pay from any chain**, click **Get quote** — you see a live NEAR Intents 1Click quote, labelled *Preview — dry quote*.
@@ -41,20 +94,7 @@ No wallet, no install, no funds. The app creates a throwaway testnet account for
 
 The public testnet faucet allows about ten new accounts per IP address in twelve hours. If it refuses, the app says so; use **Settings & demo → Use an existing testnet account** with any funded testnet account.
 
-## Video and screenshots
-
-[`demo/demo.mp4`](demo/demo.mp4) ([`demo/demo.webm`](demo/demo.webm)) is a screen recording of the app on testnet. Nothing in it is simulated.
-
-| | |
-| --- | --- |
-| ![Guided demo](docs/screenshots/guided-demo.png) Guided demo: every tick comes from chain state | ![Send review](docs/screenshots/send-review.png) Send: the fresh stealth account is shown before signing |
-| ![Inbox](docs/screenshots/inbox.png) Inbox: payments found with the view key | ![Chain view](docs/screenshots/chain-view.png) Chain view: what the public sees next to what you know |
-| ![DAO payout](docs/screenshots/dao-payout.png) A SputnikDAO proposal that never names the recipient | ![Invoice](docs/screenshots/invoice-any-chain.png) Invoice with a live NEAR Intents dry quote |
-| ![Payroll](docs/screenshots/payroll.png) Payroll: several private payments in one transaction | ![Audit](docs/screenshots/audit.png) Audit: read-only access with a viewing key |
-
-<img src="docs/screenshots/mobile-inbox.png" alt="Inbox on a phone" width="260"> <img src="docs/screenshots/mobile-invoice.png" alt="Invoice on a phone" width="260">
-
-## What is implemented
+## Features
 
 Every row can be checked. Nothing is mocked; the one preview-only feature is marked.
 
@@ -73,40 +113,29 @@ Every row can be checked. Nothing is mocked; the one preview-only feature is mar
 | Payment receipts, checked against the announcement and the transaction | `packages/core/src/crypto/receipt.ts`, `packages/core/src/perde/receipt-tx.ts` | `crypto.test.ts`, `receipt-tx.test.ts` |
 | Cross-chain quote into a stealth account (NEAR Intents 1Click) — **dry quotes only** | `packages/core/src/oneclick.ts`, `apps/web/src/features/anychain` | `services.test.ts`; [`evidence/oneclick-dry-quote.json`](evidence/oneclick-dry-quote.json) |
 
-Live deployment on NEAR testnet, from [`deployments/testnet.json`](deployments/testnet.json):
+**Live deployment on NEAR testnet** (from [`deployments/testnet.json`](deployments/testnet.json)):
 
-- Contract: [`perde-pay.testnet`](https://testnet.nearblocks.io/address/perde-pay.testnet)
-- Demo DAO: [`perde-demo.sputnikv2.testnet`](https://testnet.nearblocks.io/address/perde-demo.sputnikv2.testnet), created through the official `sputnikv2.testnet` factory
+| | Account |
+| --- | --- |
+| Contract | [`perde-pay.testnet`](https://testnet.nearblocks.io/address/perde-pay.testnet) |
+| Demo DAO | [`perde-demo.sputnikv2.testnet`](https://testnet.nearblocks.io/address/perde-demo.sputnikv2.testnet), created through the official `sputnikv2.testnet` factory |
 
-## How it works
+## Video and screenshots
 
-```
- Recipient (browser)                 Sender (browser, DAO or script)          NEAR testnet
- ───────────────────                 ───────────────────────────────          ────────────
- 12 words → k_spend, k_view
- meta-address = K_spend ‖ K_view ──► r random, R = r·G
-                                     P = K_spend + H(r·K_view)·G
-                                     send(hex(P), R, view_tag) + amount ───►  perde-pay.testnet
-                                                                              ├─ stores {hex(P), R, tag, amount}
-                                                                              └─ Transfer → account hex(P) (created)
- get_announcements (view call) ◄──────────────────────────────────────────────┘
- for each: k_view·R → same P?  → "mine"
- p = k_spend + H(k_view·R)
- sign with p as account hex(P) ──────────────────────────────────────────────► pay onward, or Transfer / DeleteAccount → destination
-```
+[`demo/demo.mp4`](demo/demo.mp4) ([`demo/demo.webm`](demo/demo.webm)) is an 88-second screen recording of the app on testnet: a DAO pays Alice without naming her, Alice finds the payment, then pays onward from the stealth account. Nothing in it is simulated.
 
-```
-apps/web/         Vite + React + TypeScript static site (no backend)
-packages/core/    @perde/core: protocol, NEAR transactions and RPC, contract / DAO / 1Click clients
-contracts/perde/  Rust contract (near-sdk): announcements + name directory
-e2e/              Playwright browser tests
-scripts/          terminal demo, contract deploy, DAO setup, video recorder
-evidence/         recorded real runs with transaction links
-deployments/      live contract and DAO ids
-docs/             protocol + threat model, QA report, screenshots
-```
+| | |
+| --- | --- |
+| ![Guided demo](docs/screenshots/guided-demo.png) Guided demo: every tick comes from chain state | ![Send review](docs/screenshots/send-review.png) Send: the fresh stealth account is shown before signing |
+| ![Inbox](docs/screenshots/inbox.png) Inbox: payments found with the view key | ![Chain view](docs/screenshots/chain-view.png) Chain view: what the public sees next to what you know |
+| ![DAO payout](docs/screenshots/dao-payout.png) A SputnikDAO proposal that never names the recipient | ![Invoice](docs/screenshots/invoice-any-chain.png) Invoice with a live NEAR Intents dry quote |
+| ![Payroll](docs/screenshots/payroll.png) Payroll: several private payments in one transaction | ![Audit](docs/screenshots/audit.png) Audit: read-only access with a viewing key |
 
-The protocol and the threat model are in [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+<p align="center">
+  <img src="docs/screenshots/mobile-inbox.png" alt="Inbox on a phone" width="240">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/mobile-invoice.png" alt="Invoice on a phone" width="240">
+</p>
 
 ## What is and is not private
 
@@ -124,24 +153,24 @@ NEAR already has stronger privacy products: confidential payments in NEAR Intent
 
 Perde is the minimal end of that range. It hides less, and asks for less:
 
-- Nothing to trust beyond NEAR itself: no enclave, no operator, no pool. A stealth account is a plain NEAR account.
-- Anyone can pay one. An invoice address is an ordinary account id, so a wallet, an exchange withdrawal, a DAO proposal or a cross-chain swap can pay it without knowing Perde exists.
-- It needs no infrastructure: one small contract and a static page.
+- **Nothing to trust beyond NEAR itself:** no enclave, no operator, no pool. A stealth account is a plain NEAR account.
+- **Anyone can pay one:** an invoice address is an ordinary account id, so a wallet, an exchange withdrawal, a DAO proposal or a cross-chain swap can pay it without knowing Perde exists.
+- **No infrastructure:** one small contract and a static page.
 
 ## Limitations
 
-- Unaudited. Scalar arithmetic in JavaScript is not constant-time. Do not use with funds you care about.
-- Testnet only. The contract has no owner or admin methods, but the deployer still holds a full-access key on `perde-pay.testnet` and could redeploy it. The contract never holds funds between calls, so funds already in stealth accounts are out of its reach.
-- Privacy depends on how many others use it. Today the announcements on the contract are almost all from our own tests, so the anonymity set is effectively empty.
-- Cost: each private payment creates a new account. On testnet a send costs about 0.007 NEAR in gas plus a 0.002 NEAR announcement fee, with a 0.01 NEAR minimum amount. A plain transfer costs about 0.00005 NEAR.
-- Only NEAR itself is supported, not NEP-141 tokens such as stablecoins.
-- NEAR Intents has no testnet. Cross-chain quotes are real 1Click **dry** quotes at mainnet prices; this project has not executed a cross-chain payment. The route delivers `nep141:wrap.near`; whether an implicit account receives native NEAR or wNEAR is unverified, and Perde cannot sweep fungible tokens.
-- The web app stores keys unencrypted in the browser's `localStorage`.
-- A viewing key cannot be revoked; create a new identity instead.
-- The demo DAO lets anyone approve proposals. It exists to demonstrate the flow; a real DAO keeps its own policy. The proposer knows whom they are paying.
-- Scanning reads every announcement, so it slows down linearly as the contract is used.
-- The contract is built with plain `cargo` and `wasm-opt`, not a reproducible `cargo near` build (see [`contracts/perde/README.md`](contracts/perde/README.md)).
-- The app, tests and demos depend on public testnet RPC endpoints and the public faucet, which are rate-limited.
+- **Unaudited.** Scalar arithmetic in JavaScript is not constant-time. Do not use with funds you care about.
+- **Testnet only.** The contract has no owner or admin methods, but the deployer still holds a full-access key on `perde-pay.testnet` and could redeploy it. The contract never holds funds between calls, so funds already in stealth accounts are out of its reach.
+- **Anonymity set.** Privacy depends on how many others use it. Today the announcements on the contract are almost all from our own tests, so the anonymity set is effectively empty.
+- **Cost.** Each private payment creates a new account. On testnet a send costs about 0.007 NEAR in gas plus a 0.002 NEAR announcement fee, with a 0.01 NEAR minimum amount. A plain transfer costs about 0.00005 NEAR.
+- **Native NEAR only.** NEP-141 tokens such as stablecoins are not supported.
+- **Cross-chain is a preview.** NEAR Intents has no testnet. Quotes are real 1Click **dry** quotes at mainnet prices; this project has not executed a cross-chain payment. The route delivers `nep141:wrap.near`; whether an implicit account receives native NEAR or wNEAR is unverified, and Perde cannot sweep fungible tokens.
+- **Keys in the browser.** The web app stores keys unencrypted in `localStorage`.
+- **No key rotation.** A viewing key cannot be revoked; create a new identity instead.
+- **Demo DAO.** It lets anyone approve proposals so the flow can be demonstrated; a real DAO keeps its own policy. The proposer knows whom they are paying.
+- **Scan cost.** Scanning reads every announcement, so it slows down linearly as the contract is used.
+- **Contract build.** The contract is built with plain `cargo` and `wasm-opt`, not a reproducible `cargo near` build (see [`contracts/perde/README.md`](contracts/perde/README.md)).
+- **Public infrastructure.** The app, tests and demos depend on public testnet RPC endpoints and the public faucet, which are rate-limited.
 
 ## Verify from source
 
@@ -170,11 +199,24 @@ The browser suite also runs axe accessibility scans on every route and exercises
 
 The site is static: `npm run build` writes `apps/web/dist/`, and [`vercel.json`](vercel.json) holds the hosting configuration (a second copy in `apps/web/` covers projects whose root directory is `apps/web`).
 
+## Repository layout
+
+```
+apps/web/         Vite + React + TypeScript static site (no backend)
+packages/core/    @perde/core: protocol, NEAR transactions and RPC, contract / DAO / 1Click clients
+contracts/perde/  Rust contract (near-sdk): announcements + name directory
+e2e/              Playwright browser tests
+scripts/          terminal demo, contract deploy, DAO setup, video recorder
+evidence/         recorded real runs with transaction links
+deployments/      live contract and DAO ids
+docs/             protocol + threat model, QA report, screenshots
+```
+
 ## Built with
 
-- **NEAR**: implicit accounts, named accounts, batched actions, NEP-297 events, `near-sdk` 5 (Rust), JSON-RPC through the FastNEAR and dRPC public endpoints, the testnet faucet helper, SputnikDAO v2 (`sputnikv2.testnet`), NEAR Intents 1Click API.
-- **Libraries**: `@noble/curves`, `@noble/hashes`, `@scure/bip39`, `@scure/base` (cryptography); React 19, Vite, Tailwind CSS 4, `react-router`, `motion`, `lucide-react`, `qrcode.react`, Fontsource fonts (Instrument Serif, Geist, Geist Mono); Vitest, Testing Library, Playwright, axe-core, Lighthouse, ESLint, TypeScript; `near-api-js` (tests and scripts only); `binaryen` (`wasm-opt`); `ffmpeg-static` (video conversion).
-- **AI assistance**: the code, tests and documentation were written with Claude Code (an AI coding agent) during the hackathon window, under the author's direction.
+- **NEAR:** implicit accounts, named accounts, batched actions, NEP-297 events, `near-sdk` 5 (Rust), JSON-RPC through the FastNEAR and dRPC public endpoints, the testnet faucet helper, SputnikDAO v2 (`sputnikv2.testnet`), NEAR Intents 1Click API.
+- **Libraries:** `@noble/curves`, `@noble/hashes`, `@scure/bip39`, `@scure/base` (cryptography); React 19, Vite, Tailwind CSS 4, `react-router`, `motion`, `lucide-react`, `qrcode.react`, Fontsource fonts (Instrument Serif, Geist, Geist Mono); Vitest, Testing Library, Playwright, axe-core, Lighthouse, ESLint, TypeScript; `near-api-js` (tests and scripts only); `binaryen` (`wasm-opt`); `ffmpeg-static` (video conversion).
+- **AI assistance:** the code, tests and documentation were written with Claude Code (an AI coding agent) during the hackathon window, under the author's direction.
 
 Everything in this repository was created inside the hackathon window; there is no earlier baseline.
 
