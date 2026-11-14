@@ -84,7 +84,7 @@ The account comes from `PERDE_FUNDER_JSON` (a JSON file `{accountId, secretKey}`
   | `success` / `warn` / `danger` | `#8cc59f` / `#e2b04a` / `#f2785c` | `#2d6a45` / `#855700` / `#a5331a` |
 
   Text tokens meet WCAG AA on `bg`, `surface` and `surface-2` in both themes.
-- **Type:** Instrument Serif (display) · Geist Variable (UI) · Geist Mono Variable (addresses, hashes, amounts; tabular numerals via `.num`). Self-hosted via Fontsource; the two above-the-fold faces are preloaded by a small Vite plugin.
+- **Type:** Instrument Serif (display) · Geist Variable (UI) · Geist Mono Variable (addresses, hashes, amounts; tabular numerals via `.num`). Self-hosted via Fontsource with `font-display: swap`.
 - **Theme:** dark by default, light via the toggle or `prefers-color-scheme`; an inline script in `index.html` sets `data-theme` before first paint.
 - **Motion:** `LazyMotion` loads animation features after first paint; `MotionConfig reducedMotion="user"` plus CSS media queries honour `prefers-reduced-motion`.
 - **Accessibility:** native `<dialog>` for Dialog / Sheet (inert background, Esc, focus return), roving-tabindex Tabs, ARIA 1.2 Combobox (with group headings), labelled fields with described-by hints and errors, 44px touch targets, visible brass focus rings, skip links. External links open in a new tab with `rel="noopener noreferrer"`.

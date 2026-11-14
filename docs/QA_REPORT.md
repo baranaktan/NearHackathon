@@ -38,16 +38,16 @@ npm run audit:secrets         # secret scan: working tree + full git history + b
 
 ## Results
 
-### Offline suite (`npm run test:e2e`, final run, 270 s)
+### Offline suite (`npm run test:e2e`, final run 2026-11-14 15:51 UTC, 334 s)
 
 | Project | Passed | Failed | Flaky | Skipped |
 | --- | ---: | ---: | ---: | ---: |
-| chromium (Desktop Chrome 1440×900) | 79 | 0 | 0 | 0 |
-| firefox (Desktop Firefox 1440×900) | 73 | 0 | 0 | 0 |
-| webkit (Desktop Safari 1440×900) | 73 | 0 | 0 | 0 |
-| mobile-pixel (Pixel 7, Chromium) | 79 | 0 | 0 | 0 |
-| mobile-iphone (iPhone 14, WebKit) | 73 | 0 | 0 | 0 |
-| **Total** | **377** | **0** | **0** | **0** |
+| chromium (Desktop Chrome 1440×900) | 83 | 0 | 0 | 0 |
+| firefox (Desktop Firefox 1440×900) | 77 | 0 | 0 | 0 |
+| webkit (Desktop Safari 1440×900) | 77 | 0 | 0 | 0 |
+| mobile-pixel (Pixel 7, Chromium) | 83 | 0 | 0 | 0 |
+| mobile-iphone (iPhone 14, WebKit) | 77 | 0 | 0 | 0 |
+| **Total** | **397** | **0** | **0** | **0** |
 
 The 6 axe tests run in `chromium` and `mobile-pixel` only (`grepInvert: /@axe/` on the other projects: axe results do not depend on the engine). All three engines installed and launched on this Windows machine. Retries are 0.
 
@@ -146,17 +146,23 @@ Strings present in the bundle but never contacted: `rpc.mainnet.near.org`, `free
 
 Hostile `#/pay` params (14 variants) and XSS note; homoglyph and `.near` names; uppercase names on Send; unregistered name; own meta-address; more than balance; below minimum; double-click submit (one signed tx); offline at submit; lost broadcast → hash shown, no auto-retry; RPC down / malformed / 500 / slow; 1Click 500 / timeout / down; faucet 429; two tabs; reload mid-scan; very long invoice notes (capped at 140, link validates); 50-row payroll limit (row 51 flagged) and chunking info; 600-announcement scan: 1.3 s (Chromium), 4.0 s (Firefox), 2.4 s (WebKit), 1.3 s (Pixel), 2.2 s (iPhone), 3 payments found, 4 page reads.
 
+### Fixed after the first report
+
+| Issue | Fix |
+| --- | --- |
+| A receipt's `tx` field was not checked, so an edited transaction link still showed "Verified payment" | Verification now fetches the transaction and checks that it succeeded and funded that stealth account (`packages/core/src/perde/receipt-tx.ts`, `receipt-tx.test.ts`); a mismatch fails the receipt, and a missing or unreachable transaction is reported as "not checked" |
+| Verify page kept the previous text when a second `?r=` link was followed | The field now follows the link; covered by an e2e test |
+| An animation chunk that failed to download left an unhandled rejection | Handled; animations stay off |
+| Claim dialog pre-filled the paying wallet as destination | Destination starts empty; "Pay someone from here" is the primary action |
+| One navigation test failed once under full load on the iPhone project (passed 50/50 alone) | Cause not reproduced; the heading wait was lengthened. Three later full runs passed 397/397 |
+
 ### Open (not fixed)
 
 | Issue | Why not fixed / suggestion |
 | --- | --- |
-| A receipt's `tx` field is not authenticated: the Verify page checks meta/r/stealth against the announcement but still shows the receipt's transaction link, so an edited `tx` keeps "Verified payment" | needs a core change (check that the tx outcome contains the announcement) or a UI label "transaction (as claimed by the receipt)"; product decision |
-| Verify page: following a second `?r=` deep link verifies the new receipt but leaves the previous text in the field | cosmetic; state is initialised once |
-| `LazyMotion` feature loader has no `.catch`: if `motion-features` fails to download the rejection is unhandled (seen only while reloading in Firefox) | animations simply stay off; low impact |
 | Clipboard API unavailable, navigating away mid-transaction | not covered by a test (`copyText` has an `execCommand` fallback by code review) |
 | npm moderate (dev-only), `cargo audit` crypto-bigint, `.tools` installer | see audit tables |
 | Lighthouse: unused JS, render-blocking CSS, `td-has-header`, app-start mobile LCP 3.3 s | targets met; larger refactors (code-split react-dom/motion, table header semantics in the illustration) |
-| `apps/web/README.md` still says the two fonts are preloaded | not my file; the preload was removed (bug 8) |
 
 ### Notes on the tooling
 
