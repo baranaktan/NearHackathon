@@ -25,10 +25,10 @@ Status: research prototype, unaudited, **NEAR testnet only**. Built at NEAR HACK
 
 ## Try it (live, in the browser)
 
-No wallet, no install, no funds. The app creates a throwaway testnet account for you. Every step below is a real NEAR testnet transaction.
+No wallet, no install, no funds. The app creates a throwaway testnet account for you. Steps 3 and 6–10 send real NEAR testnet transactions; nothing is simulated.
 
 1. Open the live demo. On the landing page, toggle **Without Perde / With Perde** — you see the same payment as a block explorer shows it, before and after.
-2. Click **See it work in a minute** — you see the guided demo checklist.
+2. Click **See it work in a minute** — you see the guided demo checklist: six steps plus bonus tours.
 3. Click **Run steps 1–4** — the app creates a testnet wallet from the public faucet, creates your identity, sends 0.05 NEAR to your own meta-address and scans for it. Each tick comes from chain state and carries a transaction link.
 4. Open **Inbox** — you see the 0.05 NEAR payment and the 64-hex stealth account that holds it.
 5. Click **Chain view** on that payment — you see what any observer can read (the transaction, the contract call, the announcement) next to what only you know.
@@ -148,9 +148,9 @@ Perde is the minimal end of that range. It hides less, and asks for less:
 Requirements: Node.js 22 or newer. No `.env`, API key or funds.
 
 ```bash
-git clone https://github.com/baranaktan/Perde.git && cd Perde
+git clone --depth 1 https://github.com/baranaktan/Perde.git && cd Perde   # --depth 1 skips old video files in the history
 
-npm run demo:testnet    # the whole flow on testnet in about 25 s; prints explorer links; exit code 0 only if every step passed
+npm run demo:testnet    # no setup needed; the whole flow on testnet in about 25 s; prints explorer links; exit code 0 only if every step passed
 ```
 
 `demo:testnet` runs nine numbered steps: create a testnet account from the faucet, create keys, send privately through the contract, compare the public announcement with the recipient's scan (a third party's scan finds nothing), claim with the derived key, pay an invoice with a plain transfer, fetch a 1Click dry quote, verify a receipt and reject a forged one, and pay from the SputnikDAO treasury. A recorded run is in [`evidence/demo-testnet-run.md`](evidence/demo-testnet-run.md). If the faucet refuses, the script says how to pass `DEMO_ACCOUNT_ID` and `DEMO_PRIVATE_KEY` and exits with code 2.

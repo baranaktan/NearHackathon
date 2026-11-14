@@ -36,7 +36,10 @@ function contentSecurityPolicy(): Plugin {
     transformIndexHtml: {
       order: 'post',
       handler(html) {
-        const hashes = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => `'sha256-${createHash('sha256').update(m[1] ?? '').digest('base64')}'`);
+        // The HTML parser turns CRLF into LF before the browser hashes an inline script,
+        // so a CRLF checkout must hash the LF form.
+        const normaliseNewlines = (text: string) => text.split('\r\n').join('\n').split('\r').join('\n');
+        const hashes = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => `'sha256-${createHash('sha256').update(normaliseNewlines(m[1] ?? '')).digest('base64')}'`);
         const policy = [
           "default-src 'self'",
           `script-src 'self' ${hashes.join(' ')}`,
