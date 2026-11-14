@@ -25,6 +25,7 @@ export function mergeScan(cache: ScanCache | null, metaAddress: string, found: r
     nextIndex,
     payments: [...byIndex.values()].sort((a, b) => b.index - a.index),
     scannedAtMs: nowMs,
+    ...(cache?.metaAddress === metaAddress && cache.invoicesRecovered === true ? { invoicesRecovered: true } : {}),
   };
 }
 

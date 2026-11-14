@@ -13,6 +13,7 @@ import { buildPayLink, NOTE_MAX } from '../pay/params';
 import type { Invoice, InvoiceModel, InvoiceStatus } from './types';
 
 const POLL_MS = 8000;
+const POLL_MAX_MS = 60_000;
 
 export function statusOf(amountYocto: string | null, live: LiveAccount | undefined, claimed: boolean): InvoiceStatus {
   if (claimed) return 'claimed';
@@ -70,15 +71,22 @@ export function useInvoice(): InvoiceModel {
   }, [accounts, tick]);
 
   const waiting = current && (current.status === 'open' || current.status === 'partial' || current.status === 'checking') ? current.stealthAccount : null;
+  // Poll the open invoice: every 8 s at first, backing off to once a minute; paused while the tab is hidden.
   useEffect(() => {
     if (!waiting) return;
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      fetchBalances([waiting])
-        .then((m) => setLive((prev) => new Map([...prev, ...m])))
-        .catch(() => undefined);
-    }, POLL_MS);
-    return () => window.clearInterval(timer);
+    let delay = POLL_MS;
+    let timer = 0;
+    const tick = () => {
+      if (document.visibilityState === 'visible') {
+        fetchBalances([waiting])
+          .then((m) => setLive((prev) => new Map([...prev, ...m])))
+          .catch(() => undefined);
+        delay = Math.min(delay * 1.5, POLL_MAX_MS);
+      }
+      timer = window.setTimeout(tick, delay);
+    };
+    timer = window.setTimeout(tick, delay);
+    return () => window.clearTimeout(timer);
   }, [waiting]);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);

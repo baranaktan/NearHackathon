@@ -9,7 +9,8 @@ import { Field, Input, Textarea } from '../../ui/Field';
 import { AmountInput } from '../../ui/AmountInput';
 import { AddressChip, VeilMark } from '../../ui/AddressChip';
 import { Callout, Skeleton } from '../../ui/Feedback';
-import { Stepper, Timeline, type StepStatus } from '../../ui/Stepper';
+import { Stepper, type StepStatus } from '../../ui/Stepper';
+import { TxProgress } from '../../components/TxProgress';
 import { TxLink } from '../../ui/TxLink';
 import { CopyButton } from '../../ui/CopyButton';
 import { Spinner } from '../../ui/Spinner';
@@ -93,7 +94,7 @@ export function SendFlow({ m: model, onChainView, lockRecipient = false }: { m: 
     <>
       {p.phase === 'edit' && <EditStep m={model} lockRecipient={lockRecipient} />}
       {p.phase === 'review' && <ReviewStep quote={p.quote} m={model} />}
-      {p.phase === 'submitting' && <SubmittingStep quote={p.quote} step={p.step} />}
+      {p.phase === 'submitting' && <SubmittingStep quote={p.quote} step={p.step} startedAtMs={p.startedAtMs} />}
       {p.phase === 'success' && <SuccessStep phase={p} onReset={model.reset} onChainView={onChainView} />}
       {p.phase === 'error' && (
         <Card>
@@ -230,8 +231,17 @@ function EditStep({ m: model, lockRecipient }: { m: SendModel; lockRecipient: bo
           )}
         </Field>
         {model.limitsError && (
-          <Callout tone="danger" role="alert" title="Couldn’t read the Perde contract">
-            {model.limitsError} Reload the page to retry.
+          <Callout
+            tone="danger"
+            role="alert"
+            title="Couldn’t read the Perde contract"
+            action={
+              <Button size="sm" variant="secondary" icon={<RotateCcw aria-hidden className="size-4" />} onClick={model.retryLimits}>
+                Try again
+              </Button>
+            }
+          >
+            {model.limitsError}
           </Callout>
         )}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
@@ -285,22 +295,11 @@ function ReviewStep({ quote, m: model }: { quote: SendQuote; m: SendModel }) {
   );
 }
 
-const STEP_ORDER: SubmitStep[] = ['sign', 'broadcast', 'confirm'];
-
-function SubmittingStep({ quote, step }: { quote: SendQuote; step: SubmitStep }) {
-  const at = STEP_ORDER.indexOf(step);
-  const st = (i: number): StepStatus => (i < at ? 'done' : i === at ? 'active' : 'pending');
+function SubmittingStep({ quote, step, startedAtMs }: { quote: SendQuote; step: SubmitStep; startedAtMs: number }) {
   return (
     <Card aria-busy="true">
       <CardHeader title="Sending" description={<>Paying <Amount yocto={quote.amountYocto} size="sm" /> to a fresh account.</>} />
-      <Timeline
-        label="Transaction progress"
-        steps={[
-          { id: 'sign', label: 'Signed in your browser', detail: 'Your key never leaves this device.', status: st(0) },
-          { id: 'broadcast', label: 'Broadcast and executed on NEAR testnet', detail: 'Usually two to three seconds.', status: st(1) },
-          { id: 'confirm', label: 'Announcement read back from the contract', status: st(2) },
-        ]}
-      />
+      <TxProgress step={step} startedAtMs={startedAtMs} labels={{ confirm: 'Announcement read back from the contract' }} />
     </Card>
   );
 }
@@ -421,7 +420,8 @@ function RecentSends({ history }: { history: SentRecord[] }) {
             </div>
             <div className="mt-0.5 flex items-center justify-between gap-2 text-[12px] text-fg-faint">
               <span>
-                {r.kind === 'payroll' ? 'Payroll' : r.kind === 'invoice' ? 'Invoice' : 'Payment'} · {formatDateTime(r.atMs)}
+                {r.kind === 'payroll' ? 'Payroll' : r.kind === 'invoice' ? 'Invoice' : r.kind === 'onward' ? 'Paid onward' : 'Payment'} ·{' '}
+                {formatDateTime(r.atMs)}
               </span>
               <TxLink hash={r.txHash} label="" className="min-h-6 text-[12px]" />
             </div>

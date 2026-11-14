@@ -9,11 +9,12 @@ import {
   invoiceMatch,
   recoverSpendScalar,
   scanAnnouncement,
+  type StealthDerivation,
   type StealthMatch,
 } from '../crypto/stealth.js';
 import { assertAccountId, isImplicitAccountId } from '../near/accountId.js';
 import { explorerAccountUrl, explorerTxUrl, NETWORKS, type NetworkId } from '../near/network.js';
-import { type FetchFn, NearRpc, type ProtocolFeeConfig, type TxOutcome, type WaitUntil } from '../near/rpc.js';
+import { type FetchFn, NearRpc, type ProtocolFeeConfig, type TxOutcome, type WaitForTransactionOptions, type WaitUntil } from '../near/rpc.js';
 import { sendActions } from '../near/send.js';
 import { ScalarSigner, type Signer } from '../near/signer.js';
 import { type Action, deleteAccount, functionCall, transfer } from '../near/transaction.js';
@@ -26,6 +27,11 @@ export interface PerdeClientOptions {
   readonly contractId?: string;
   readonly rpcUrls?: readonly string[];
   readonly fetch?: FetchFn;
+  /**
+   * Use this RPC client (shared endpoint health, cache and de-duplication)
+   * instead of creating one from `rpcUrls`/`fetch`.
+   */
+  readonly rpc?: NearRpc;
   readonly waitUntil?: WaitUntil;
   /**
    * Gas attached to each `send` FunctionCall action. Default 20 Tgas: on
@@ -94,9 +100,40 @@ export interface SendResult {
   readonly outcome: TxOutcome;
 }
 
+/** Called with the hash right after signing (before broadcast), so a lost response can be recovered by hash. */
+export type TxHashCallback = (hash: string) => void;
+
+export interface SendOptions {
+  /**
+   * A stealth derivation made earlier with `deriveStealth(meta)`, e.g. so a UI
+   * can show the exact one-time account before the person signs. It is
+   * checked against the recipient's meta-address (KEY_MISMATCH otherwise).
+   * Default: a fresh derivation.
+   */
+  readonly stealth?: StealthDerivation;
+  readonly onTxHash?: TxHashCallback;
+}
+
 export interface BatchItem {
   readonly to: string;
   readonly amountYocto: bigint | string;
+  /** Pre-derived stealth account for this item (see `SendOptions.stealth`). */
+  readonly stealth?: StealthDerivation;
+}
+
+export interface BatchOptions {
+  readonly onTxHash?: TxHashCallback;
+}
+
+/** Outcome of an earlier claim, looked up by its transaction hash. */
+export interface ClaimStatus {
+  readonly txHash: string;
+  readonly explorerUrl: string;
+  readonly stealthAccountId: string;
+  readonly success: boolean;
+  readonly failure: unknown;
+  readonly tokensBurnt: bigint;
+  readonly outcome: TxOutcome;
 }
 
 export interface BatchItemResult {
@@ -129,6 +166,8 @@ export interface ClaimOptions {
    * balance minus the exact fee; requires an existing destination account.
    */
   readonly mode?: ClaimMode;
+  /** Receives the claim's transaction hash before it is broadcast (recover with `claimStatus`). */
+  readonly onTxHash?: TxHashCallback;
 }
 
 export interface ClaimResult {
@@ -205,7 +244,7 @@ export class PerdeClient {
     this.network = options.network;
     if (options.contractId !== undefined) assertAccountId(options.contractId, 'contract id');
     this.contractId = options.contractId;
-    this.rpc = new NearRpc({ urls: options.rpcUrls ?? NETWORKS[options.network].rpcUrls, ...(options.fetch ? { fetch: options.fetch } : {}) });
+    this.rpc = options.rpc ?? new NearRpc({ urls: options.rpcUrls ?? NETWORKS[options.network].rpcUrls, ...(options.fetch ? { fetch: options.fetch } : {}) });
     this.waitUntil = options.waitUntil ?? 'EXECUTED_OPTIMISTIC';
     this.gasPerSend = options.gasPerSend ?? tgas(20);
   }
@@ -271,13 +310,18 @@ export class PerdeClient {
     );
   }
 
-  /** `amountYocto` is what the stealth account receives; the announce fee is added on top. */
-  async send(signer: Signer, senderId: string, recipientMetaOrAccountId: string, amountYocto: bigint | string): Promise<SendResult> {
+  /**
+   * `amountYocto` is what the stealth account receives; the announce fee is
+   * added on top. Any signer works: a named account's `SeedSigner`, or a
+   * stealth account's `ScalarSigner` to pay onward from a stealth account
+   * without touching another account.
+   */
+  async send(signer: Signer, senderId: string, recipientMetaOrAccountId: string, amountYocto: bigint | string, options: SendOptions = {}): Promise<SendResult> {
     const amount = toYocto(amountYocto);
     const [meta, config] = await Promise.all([this.resolveRecipient(recipientMetaOrAccountId), this.getConfig()]);
     if (amount < config.minAmount) throw new PerdeError('INVALID_AMOUNT', `amount is below the contract minimum of ${config.minAmount} yocto`);
-    const stealth = deriveStealth(meta);
-    const outcome = await this.#send(signer, senderId, this.contract(), [this.#sendAction(stealth, amount + config.announceFee)]);
+    const stealth = options.stealth === undefined ? deriveStealth(meta) : checkedStealth(meta, options.stealth);
+    const outcome = await this.#send(signer, senderId, this.contract(), [this.#sendAction(stealth, amount + config.announceFee)], options.onTxHash);
     return {
       txHash: outcome.hash,
       explorerUrl: this.txUrl(outcome.hash),
@@ -297,7 +341,7 @@ export class PerdeClient {
   }
 
   /** One transaction with one `send` FunctionCall per item (atomic: all or nothing). */
-  async sendBatch(signer: Signer, senderId: string, items: readonly BatchItem[]): Promise<BatchResult> {
+  async sendBatch(signer: Signer, senderId: string, items: readonly BatchItem[], options: BatchOptions = {}): Promise<BatchResult> {
     if (items.length === 0) throw new PerdeError('INVALID_AMOUNT', 'batch is empty');
     if (items.length > this.maxBatchSize) {
       throw new PerdeError('INVALID_AMOUNT', `batch of ${items.length} exceeds the ${this.maxBatchSize}-action gas limit; split it`);
@@ -312,11 +356,14 @@ export class PerdeClient {
       const amount = toYocto(item.amountYocto);
       if (amount < config.minAmount) throw new PerdeError('INVALID_AMOUNT', `amount for ${item.to} is below the minimum of ${config.minAmount} yocto`);
       const meta = resolved.get(item.to.trim()) as string;
-      return { item, meta, amount, stealth: deriveStealth(meta) };
+      return { item, meta, amount, stealth: item.stealth === undefined ? deriveStealth(meta) : checkedStealth(meta, item.stealth) };
     });
+    if (new Set(prepared.map((p) => p.stealth.stealthAccountId)).size !== prepared.length) {
+      throw new PerdeError('INVALID_AMOUNT', 'two batch items use the same stealth account');
+    }
     const actions = prepared.map((p) => this.#sendAction(p.stealth, p.amount + config.announceFee));
     const totalDeposit = prepared.reduce((s, p) => s + p.amount + config.announceFee, 0n);
-    const outcome = await this.#send(signer, senderId, this.contract(), actions);
+    const outcome = await this.#send(signer, senderId, this.contract(), actions, options.onTxHash);
     return {
       txHash: outcome.hash,
       explorerUrl: this.txUrl(outcome.hash),
@@ -383,7 +430,8 @@ export class PerdeClient {
     let lastUsed = (options.startIndex ?? 0) - 1;
     let cursor = options.startIndex ?? 0;
     while (cursor - 1 - lastUsed < gapLimit) {
-      const window = Array.from({ length: gapLimit }, (_, k) => cursor + k);
+      // Only as many indices as still needed to see `gapLimit` empty ones in a row after the last used one.
+      const window = Array.from({ length: gapLimit - (cursor - 1 - lastUsed) }, (_, k) => cursor + k);
       const results = await mapLimit(window, 8, async (i) => {
         const inv = deriveInvoice(vk, i);
         const view = await this.rpc.viewAccountOrNull(inv.stealthAccountId);
@@ -401,7 +449,7 @@ export class PerdeClient {
           tweak: invoiceMatch(vk, inv.index).tweak,
         });
       }
-      cursor += gapLimit;
+      cursor += window.length;
     }
     return found.sort((a, b) => a.index - b.index);
   }
@@ -469,7 +517,7 @@ export class PerdeClient {
       receiverId = destinationAccountId;
       actions = [transfer(amount)];
     }
-    const outcome = await this.#send(signer, stealthId, receiverId, actions);
+    const outcome = await this.#send(signer, stealthId, receiverId, actions, options.onTxHash);
     return {
       txHash: outcome.hash,
       explorerUrl: this.txUrl(outcome.hash),
@@ -506,7 +554,43 @@ export class PerdeClient {
     return { ...verifyReceipt(receipt, announcement), announced: true, announcement, balance };
   }
 
-  #send(signer: Signer, signerId: string, receiverId: string, actions: readonly Action[]): Promise<TxOutcome> {
-    return sendActions({ rpc: this.rpc, signer, signerId, receiverId, actions, waitUntil: this.waitUntil });
+  /**
+   * Outcome of any transaction by hash (e.g. one whose response was lost
+   * after `onTxHash` reported its hash). Polls briefly; see
+   * `NearRpc.waitForTransaction`.
+   */
+  async transactionOutcome(txHash: string, signerId: string, options: WaitForTransactionOptions = {}): Promise<TxOutcome> {
+    return this.rpc.waitForTransaction(txHash, signerId, { waitUntil: this.waitUntil, ...options });
   }
+
+  /**
+   * Recover a claim's outcome by its transaction hash (from `onTxHash`, or
+   * `details.hash` of the error a claim threw when its response was lost).
+   * A claim is signed by the stealth account, so that is the sender to look up.
+   */
+  async claimStatus(txHash: string, stealthAccountId: string, options: WaitForTransactionOptions = {}): Promise<ClaimStatus> {
+    const outcome = await this.transactionOutcome(txHash, stealthAccountId, options);
+    return {
+      txHash: outcome.hash,
+      explorerUrl: this.txUrl(outcome.hash),
+      stealthAccountId,
+      success: outcome.success,
+      failure: outcome.failure,
+      tokensBurnt: outcome.tokensBurnt,
+      outcome,
+    };
+  }
+
+  #send(signer: Signer, signerId: string, receiverId: string, actions: readonly Action[], onTxHash?: TxHashCallback): Promise<TxOutcome> {
+    return sendActions({ rpc: this.rpc, signer, signerId, receiverId, actions, waitUntil: this.waitUntil, ...(onTxHash ? { onTxHash } : {}) });
+  }
+}
+
+/** A caller-supplied derivation must be the one `deriveStealth(meta, r)` gives for this meta-address. */
+function checkedStealth(meta: string, stealth: StealthDerivation): StealthDerivation {
+  const expected = deriveStealth(meta, stealth.r);
+  if (expected.stealthAccountId !== stealth.stealthAccountId || expected.ephemeralPk !== stealth.ephemeralPk || expected.viewTag !== stealth.viewTag) {
+    throw new PerdeError('KEY_MISMATCH', 'the pre-derived stealth account does not belong to this recipient');
+  }
+  return expected;
 }

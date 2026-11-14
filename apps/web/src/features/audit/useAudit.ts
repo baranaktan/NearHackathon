@@ -77,7 +77,7 @@ export function useAudit(): AuditModel {
             status: i.balance > 0n ? 'held' : 'moved',
           }),
         ),
-      ].sort((a, b) => (b.timestampMs ?? 0) - (a.timestampMs ?? 0));
+      ].sort((a, b) => (b.timestampMs ?? 0) - (a.timestampMs ?? 0) || (b.announcementIndex ?? -1) - (a.announcementIndex ?? -1));
       setState({
         status: 'done',
         metaAddress: encodeMetaAddress(vk),

@@ -46,6 +46,7 @@ export function fakeChain(contractId = 'perde.testnet') {
   const announcements: FakeAnnouncement[] = [];
   const directory = new Map<string, string>();
   const submitted: SubmittedTx[] = [];
+  const outcomes = new Map<string, object>();
 
   const ok = (result: unknown) => jsonResponse({ jsonrpc: '2.0', id: 1, result });
   const handlerError = (name: string, data?: unknown) =>
@@ -172,7 +173,13 @@ export function fakeChain(contractId = 'perde.testnet') {
         status = { Failure: { ActionError: { kind: (e as Error).message } } };
       }
       const o = { executor_id: t.signerId, gas_burnt: 446365125000, tokens_burnt: BURN_PER_TX.toString(), logs: [], receipt_ids: [], status };
-      return ok({ final_execution_status: 'EXECUTED_OPTIMISTIC', status, transaction: { hash, signer_id: t.signerId, receiver_id: t.receiverId }, transaction_outcome: { id: hash, block_hash: 'b', outcome: { ...o, tokens_burnt: '0', gas_burnt: 0 } }, receipts_outcome: [{ id: 'r', block_hash: 'b', outcome: o }] });
+      const result = { final_execution_status: 'EXECUTED_OPTIMISTIC', status, transaction: { hash, signer_id: t.signerId, receiver_id: t.receiverId }, transaction_outcome: { id: hash, block_hash: 'b', outcome: { ...o, tokens_burnt: '0', gas_burnt: 0 } }, receipts_outcome: [{ id: 'r', block_hash: 'b', outcome: o }] };
+      outcomes.set(`${hash}|${t.signerId}`, result);
+      return ok(result);
+    }
+    if (method === 'tx') {
+      const found = outcomes.get(`${String(params.tx_hash)}|${String(params.sender_account_id)}`);
+      return found ? ok(found) : handlerError('UNKNOWN_TRANSACTION');
     }
     throw new Error(`fake chain: unhandled ${method}`);
   });

@@ -8,6 +8,8 @@ export type Action =
   /** Forgets the identity and everything derived from it (invoices, scan cache, claims). */
   | { type: 'identity/clear' }
   | { type: 'invoice/add'; invoice: Omit<InvoiceRecord, 'index'> }
+  /** Invoice accounts found on-chain by a discovery scan (e.g. after restoring the phrase in a new browser). */
+  | { type: 'invoice/recover'; indices: number[] }
   | { type: 'sent/add'; records: SentRecord[] }
   | { type: 'claim/add'; claim: ClaimRecord }
   | { type: 'scan/set'; scan: ScanCache | null }
@@ -34,6 +36,15 @@ export function reducer(state: PersistedState, action: Action): PersistedState {
     case 'invoice/add': {
       const inv: InvoiceRecord = { ...action.invoice, index: state.nextInvoiceIndex };
       return { ...state, invoices: [inv, ...state.invoices], nextInvoiceIndex: state.nextInvoiceIndex + 1 };
+    }
+    case 'invoice/recover': {
+      const known = new Set(state.invoices.map((i) => i.index));
+      const added: InvoiceRecord[] = [...new Set(action.indices)]
+        .filter((i) => Number.isSafeInteger(i) && i >= 0 && !known.has(i))
+        .map((index) => ({ index, amountYocto: null, note: '', createdAtMs: 0 }));
+      if (added.length === 0) return state;
+      const invoices = [...state.invoices, ...added].sort((a, b) => b.index - a.index);
+      return { ...state, invoices, nextInvoiceIndex: Math.max(state.nextInvoiceIndex, ...added.map((i) => i.index + 1)) };
     }
     case 'sent/add': {
       const ids = new Set(action.records.map((r) => r.id));

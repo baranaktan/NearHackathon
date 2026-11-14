@@ -28,7 +28,7 @@ export type SubmitStep = 'sign' | 'broadcast' | 'confirm';
 export type SendPhase =
   | { phase: 'edit' }
   | { phase: 'review'; quote: SendQuote }
-  | { phase: 'submitting'; quote: SendQuote; step: SubmitStep }
+  | { phase: 'submitting'; quote: SendQuote; step: SubmitStep; startedAtMs: number }
   | { phase: 'success'; quote: SendQuote; txHash: string; /** "perdereceipt:…" */ receipt: string; announcementIndex: number | null; record: SentRecord }
   | { phase: 'error'; quote: SendQuote | null; message: string; /** Set when the tx may have landed: check before retrying. */ txHash: string | null };
 
@@ -54,6 +54,8 @@ export interface SendModel {
   /** Contract minimums + gas headroom, for hints and the Max button. Null while loading. */
   limits: { minAmountYocto: string; announceFeeYocto: string; gasReserveYocto: string } | null;
   limitsError: string | null;
+  /** Read the contract's fee/minimum and the gas price again. */
+  retryLimits(): void;
   phase: SendPhase;
   canReview: boolean;
   review(): void;

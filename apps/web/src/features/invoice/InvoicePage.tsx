@@ -123,7 +123,7 @@ function InvoiceList({ m }: { m: InvoiceModel }) {
                 <span className="num w-7 shrink-0 font-mono text-[12px] text-fg-faint">#{inv.index}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px] text-fg">{inv.memo || 'Untitled'}</span>
-                  <span className="block text-[12px] text-fg-faint">{formatDateTime(inv.createdAtMs)}</span>
+                  <span className="block text-[12px] text-fg-faint">{inv.createdAtMs ? formatDateTime(inv.createdAtMs) : 'Found by an inbox scan'}</span>
                 </span>
                 <Badge tone={s.tone} dot>
                   {inv.status === 'open' ? 'Open' : s.label}

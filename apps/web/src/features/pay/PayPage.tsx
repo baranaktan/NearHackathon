@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { ArrowRight, CircleCheck, Quote } from 'lucide-react';
 import { Logo } from '../../brand/Logo';
@@ -10,7 +10,7 @@ import { Field } from '../../ui/Field';
 import { AmountInput } from '../../ui/AmountInput';
 import { AddressChip } from '../../ui/AddressChip';
 import { Callout } from '../../ui/Feedback';
-import { Timeline, type StepStatus } from '../../ui/Stepper';
+import { TxProgress } from '../../components/TxProgress';
 import { TxLink } from '../../ui/TxLink';
 import { Amount } from '../../components/Amount';
 import { WalletCard } from '../../components/wallet/WalletCard';
@@ -130,9 +130,6 @@ function InvoicePay({ target }: { target: Extract<PayTarget, { kind: 'invoice' }
   const { wallet } = useAppState();
   const pay = usePayInvoice(target.account, target.amountYocto);
   const p = pay.phase;
-  const order = ['sign', 'broadcast', 'confirm'] as const;
-  const at = p.phase === 'submitting' ? order.indexOf(p.step) : -1;
-  const st = (i: number): StepStatus => (i < at ? 'done' : i === at ? 'active' : 'pending');
   return (
     <>
       <Heading eyebrow="Invoice" title={target.amountYocto ? `Pay ${formatYocto(target.amountYocto)} NEAR` : 'Pay this invoice'}>
@@ -189,14 +186,7 @@ function InvoicePay({ target }: { target: Extract<PayTarget, { kind: 'invoice' }
           </div>
         )}
         {p.phase === 'submitting' && (
-          <Timeline
-            label="Payment progress"
-            steps={[
-              { id: 'sign', label: 'Signed in your browser', status: st(0) },
-              { id: 'broadcast', label: 'Broadcast and executed on NEAR testnet', status: st(1) },
-              { id: 'confirm', label: 'Done', status: st(2) },
-            ]}
-          />
+          <InvoiceProgress step={p.step} />
         )}
         {p.phase === 'success' && (
           <div className="flex items-start gap-3">
@@ -226,4 +216,10 @@ function InvoicePay({ target }: { target: Extract<PayTarget, { kind: 'invoice' }
       </p>
     </>
   );
+}
+
+/** Mounted when the payment starts; the elapsed-time wording counts from here. */
+function InvoiceProgress({ step }: { step: 'sign' | 'broadcast' | 'confirm' }) {
+  const [startedAt] = useState(() => Date.now());
+  return <TxProgress label="Payment progress" step={step} startedAtMs={startedAt} labels={{ confirm: 'Invoice balance read back from chain' }} />;
 }

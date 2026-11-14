@@ -10,6 +10,7 @@ import { AddressChip } from '../../ui/AddressChip';
 import { Callout, EmptyState, Skeleton } from '../../ui/Feedback';
 import { TxLink } from '../../ui/TxLink';
 import { Amount } from '../../components/Amount';
+import { ElapsedNote } from '../../components/ElapsedNote';
 import { APP_CONFIG } from '../../config';
 import { formatDateTime } from '../../lib/format-date';
 import { formatYocto, truncateMiddle } from '../../lib/near-format';
@@ -149,10 +150,11 @@ function ProposeCard({ m }: { m: DaoModel }) {
               )}
             </Callout>
           )}
-          <div>
+          <div className="space-y-2">
             <Button type="submit" disabled={!m.canPropose} loading={m.action.kind === 'proposing'} loadingLabel="Proposing">
               Propose payout
             </Button>
+            {m.action.kind === 'proposing' && <ElapsedNote doing="Signing, executing and reading the proposal back" typical="usually 3–6 s" />}
           </div>
         </form>
       )}
@@ -210,9 +212,12 @@ function CurrentCard({ m }: { m: DaoModel }) {
           </div>
           {p ? <PublicProposal p={p} /> : <Skeleton className="h-40 w-full" />}
           {!last.vote && p && p.status === 'InProgress' && !p.expired && (
-            <Button onClick={() => m.approve(last.proposalId)} loading={!!voting} loadingLabel="Approving" icon={<CheckCheck aria-hidden className="size-4" />}>
-              Approve & execute
-            </Button>
+            <div className="space-y-2">
+              <Button onClick={() => m.approve(last.proposalId)} loading={!!voting} loadingLabel="Approving" icon={<CheckCheck aria-hidden className="size-4" />}>
+                Approve & execute
+              </Button>
+              {voting && <ElapsedNote doing="Voting — the payout runs inside the vote, then the result is read back" typical="usually 4–8 s" slowAfterS={15} />}
+            </div>
           )}
           {last.vote && (
             <div className="rounded-lg border border-line bg-surface-2/50 p-4">

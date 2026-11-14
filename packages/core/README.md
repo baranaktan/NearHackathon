@@ -42,12 +42,18 @@ Receipts: `createReceipt({meta, r, stealthAccountId, tx?})` → `"perdereceipt:�
 
 ## NEAR client
 
-- `NearRpc({urls, fetch?, timeoutMs?, finality?})`: `viewAccount`, `viewAccountOrNull`, `accountExists`, `getBalance`, `viewFunction`, `getAccessKey`, `latestBlock`, `latestBlockHash`, `gasPrice`, `protocolConfig`, `sendTransaction(stx, waitUntil)` (`send_tx`, polls `tx` after a server timeout), `txStatus`. Transport errors, HTTP 408/429/5xx and node-sync errors fail over to the next URL; handler errors (`UNKNOWN_ACCOUNT`, …) are thrown as `RpcError`.
+- `NearRpc({urls, methodUrls?, fetch?, timeoutMs?, finality?, cooldownMs?, cache?, confirmTimeoutMs?, confirmIntervalMs?})`: `viewAccount`, `viewAccountOrNull`, `accountExists`, `getBalance`, `viewFunction`, `getAccessKey`, `latestBlock`, `latestBlockHash`, `gasPrice`, `protocolConfig`, `sendTransaction(stx, waitUntil)`, `txStatus`, `waitForTransaction(hash, signerId, {waitUntil?, timeoutMs?, intervalMs?})`, `endpointOrder(method)`, `clearCache()`.
+  - **Failover:** anything that is not a node's JSON-RPC answer fails over to the next URL: transport errors, HTTP 429, any other non-2xx status without a nearcore error body (rate limiters, proxies, a free tier's 408), unparseable bodies, and node-sync errors. Errors a node reports about the request (`UNKNOWN_ACCOUNT`, `PARSE_ERROR`, …) are thrown as `RpcError` without trying other endpoints.
+  - **Adaptive order:** an endpoint that failed goes to the back for `cooldownMs` (default 30 s), so calls stick to the endpoint that answered; `methodUrls` gives a method its own order (e.g. `{ send_tx: [...] }`).
+  - **Cache (opt-in, `cache: true`):** identical concurrent reads share one request; `query` results are reused for 1 s, `gas_price` 30 s, the final block 10 s, the protocol config 10 min. Access-key queries and `tx` lookups are only de-duplicated. `sendTransaction` clears the cache before and after, so read-after-write polling always reaches the network.
+  - **Lost responses:** `send_tx` waits for execution; after a server timeout, or when every endpoint failed after the broadcast may have arrived, the transaction is looked up by hash (`tx` with `wait_until: "NONE"`, answered immediately, so no endpoint's request-time cap is hit) for `confirmTimeoutMs` (30 s). If it still can't be confirmed, `RPC_UNAVAILABLE` carries `details.hash`. `waitForTransaction` returns failed outcomes instead of throwing.
+  - `hasReached(raw, waitUntil)` tells whether a `tx`/`send_tx` result shows execution to that level.
 - Transactions: `transfer`, `functionCall`, `deleteAccount`, `serializeTransaction` (borsh `TransactionV0`, byte-identical to near-api-js 7.5.3 — tested), `signTransaction(tx, signer)`, `sendActions({rpc, signer, signerId, receiverId, actions})`.
 - Signers (`Signer` interface: `publicKey`, `sign(msg)`): `ScalarSigner(p)` for stealth accounts, `SeedSigner.fromSecretKey("ed25519:…")` / `SeedSigner.generate()` for ordinary accounts.
 - Units: `parseNear("1.5")`, `formatNear(yocto, {maxDecimals})`, `tgas(n)` — bigint only, no floats.
 - Links: `explorerTxUrl(network, hash)`, `explorerAccountUrl(network, id)` (testnet → `testnet.nearblocks.io`).
-- Defaults: testnet `https://test.rpc.fastnear.com` → `https://rpc.testnet.near.org`; mainnet `https://free.rpc.fastnear.com` → `https://rpc.mainnet.near.org`.
+- `sendActions({…, onTxHash?})` reports the hash right after signing, before the broadcast.
+- Defaults: testnet `https://test.rpc.fastnear.com` → `https://near-testnet.drpc.org`; mainnet `https://free.rpc.fastnear.com` → `https://rpc.mainnet.near.org`. Measured 2026-11-14: FastNEAR answers in ~80 ms with no request-time cap but rate-limits after a burst of ~200 requests (HTTP 429 without CORS headers); dRPC took 400 requests at 10 concurrent without a 429 and sends CORS headers on every answer, but its free tier ends any request after ~2 s (HTTP 408, which a waiting `send_tx` can hit). `rpc.testnet.near.org` is deprecated (every answer throttled to ~3 s). Browser apps should read from dRPC first and broadcast through FastNEAR (see `apps/web/src/lib/perde.ts`).
 
 ## High-level client
 
@@ -62,11 +68,20 @@ await perde.sendBatch(signer, 'bob.testnet', [{ to: metaA, amountYocto: 10n ** 2
 const { payments, nextIndex } = await perde.scan(viewingKey, { fromIndex: 0 }); // live balances
 await perde.claim(keys, payments[0], 'alice.testnet');                           // sweep, signed by the stealth scalar
 await perde.claim(keys, payments[1], 'alice.testnet', { mode: 'deleteAccount' });
+// Pay onward from a stealth account without claiming: it signs with its own derived key.
+await perde.send(new ScalarSigner(recoverSpendScalar(keys, payments[2])), payments[2].stealthAccountId, 'perde:…', 10n ** 22n);
 const invoices = await perde.scanInvoices(viewingKey, { gapLimit: 20 });
 await perde.claim(keys, { invoiceIndex: 0 }, 'alice.testnet');
 ```
 
-Also: `getConfig`, `announcementCount`, `getMetaAddress`, `unregister`, `resolveRecipient`, `fetchAnnouncements({fromIndex, limit})` (cursor `nextIndex`, `hasMore`), `iterateAnnouncements`, `estimateClaimFee`, `verifyReceipt` (on-chain), `maxBatchSize`.
+Also: `getConfig`, `announcementCount`, `getMetaAddress`, `unregister`, `resolveRecipient`, `fetchAnnouncements({fromIndex, limit})` (cursor `nextIndex`, `hasMore`), `iterateAnnouncements`, `estimateClaimFee`, `verifyReceipt` (on-chain), `maxBatchSize`, `transactionOutcome(hash, signerId)`, `claimStatus(hash, stealthAccountId)`.
+
+Options (all optional, backward compatible):
+
+- `new PerdeClient({…, rpc})` shares one `NearRpc` (endpoint health, cache); `SputnikDao` takes `rpc` too and passes it to its inner client.
+- `send(signer, senderId, to, amount, { stealth, onTxHash })`: `stealth` is a derivation made earlier with `deriveStealth(meta)`, so a UI can show the exact one-time account before signing; it is checked against the recipient (`KEY_MISMATCH` otherwise). `sendBatch(signer, senderId, items, { onTxHash })` accepts `stealth` per item and rejects two items with the same stealth account.
+- `claim(keys, payment, destination, { mode, amountYocto, onTxHash })`: the result has `txHash`; `onTxHash` reports it before the broadcast, and if the response is lost the thrown error carries `details.hash`. `claimStatus(hash, stealthAccountId)` recovers the outcome (`success`, `failure`, `tokensBurnt`, `outcome`).
+- **Pay onward:** any signer works with `send`, including a stealth account's own `ScalarSigner(recoverSpendScalar(keys, payment))`: `perde.send(stealthSigner, payment.stealthAccountId, meta, amount)` moves funds stealth → fresh stealth with a new announcement, without touching a named account.
 
 `send(…, amountYocto)`: `amountYocto` is what the stealth account receives; the contract's `announce_fee` is added to the attached deposit. Each `send` action carries 20 Tgas (≈10 Tgas used: contract ≈2.4 Tgas plus ≈7.5 Tgas for the transfer receipt that creates the implicit account; NEAR's 0.007 NEAR account-creation charge is paid from that prepaid gas). Unused gas is refunded, so a batch holds at most 15 sends.
 

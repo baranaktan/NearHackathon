@@ -4,7 +4,7 @@
  * transaction hash when the network fails after the broadcast, so the UI can
  * point at the explorer instead of inviting a double payment.
  */
-import { buildSignedTransaction, isPerdeError, PerdeError, pollUntil, type Action, type Signer, type TxOutcome } from '@perde/core';
+import { buildSignedTransaction, isPerdeError, type Action, type Signer, type TxOutcome } from '@perde/core';
 import { rpc } from '../lib/perde';
 
 export type TxStep = 'sign' | 'broadcast' | 'confirm';
@@ -39,48 +39,33 @@ function isInvalidNonce(e: unknown): boolean {
   }
 }
 
-/** Outcome of a transaction by hash, polling briefly; null if no node knows it. */
-async function lookUp(hash: string, signerId: string): Promise<TxOutcome | null> {
-  try {
-    return await pollUntil(
-      () => rpc.txStatus(hash, signerId, 'EXECUTED_OPTIMISTIC'),
-      (o) => o.finalExecutionStatus !== 'NONE' && o.finalExecutionStatus !== 'INCLUDED',
-      { timeoutMs: 12_000, intervalMs: 1500, retryOn: () => true, what: 'the transaction' },
-    );
-  } catch {
-    return null;
-  }
-}
-
 export interface SignAndSendParams {
   signer: Signer;
   signerId: string;
   receiverId: string;
   actions: readonly Action[];
   onStep?: (step: TxStep) => void;
+  /** The hash, as soon as the transaction is signed (before the broadcast). */
+  onTxHash?: (hash: string) => void;
 }
 
-export async function signAndSend({ signer, signerId, receiverId, actions, onStep }: SignAndSendParams): Promise<TxOutcome> {
+export async function signAndSend({ signer, signerId, receiverId, actions, onStep, onTxHash }: SignAndSendParams): Promise<TxOutcome> {
   let last: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     onStep?.('sign');
     const stx = await buildSignedTransaction({ rpc, signer, signerId, receiverId, actions });
+    onTxHash?.(stx.hash);
     onStep?.('broadcast');
     try {
+      // Core waits for execution, and if no endpoint answered the broadcast it looks the
+      // transaction up by hash before giving up (the response may be lost, not the transaction).
       return await rpc.sendTransaction(stx, 'EXECUTED_OPTIMISTIC');
     } catch (e) {
       if (isInvalidNonce(e)) {
         last = e;
         continue;
       }
-      // The response was lost (endpoint failure, odd HTTP status): the transaction may still
-      // have landed. Look it up by hash before reporting anything.
-      if (isPerdeError(e, 'RPC_UNAVAILABLE') || isPerdeError(e, 'RPC_ERROR')) {
-        const landed = await lookUp(stx.hash, signerId);
-        if (landed?.success) return landed;
-        if (landed) throw new PerdeError('TX_FAILED', `transaction ${landed.hash} failed`, { hash: landed.hash, outcome: landed });
-        throw new UnconfirmedTxError(stx.hash, e);
-      }
+      if (isPerdeError(e, 'RPC_UNAVAILABLE') || isPerdeError(e, 'RPC_ERROR')) throw new UnconfirmedTxError(stx.hash, e);
       throw e;
     }
   }

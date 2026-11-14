@@ -12,11 +12,62 @@ export type WaitUntil = 'EXECUTED_OPTIMISTIC' | 'EXECUTED' | 'FINAL';
 export interface NearRpcOptions {
   /** Endpoints tried in order; transport failures fail over to the next one. */
   readonly urls: readonly string[];
+  /**
+   * Per-method endpoint order that overrides `urls` for that JSON-RPC method,
+   * e.g. `{ send_tx: [...] }` to broadcast through endpoints without a short
+   * server-side request cap (some free tiers answer 408 after ~2 s).
+   */
+  readonly methodUrls?: Readonly<Partial<Record<string, readonly string[]>>>;
   readonly fetch?: FetchFn;
   /** Per-request timeout. Default 20 s (send_tx waits server-side up to ~10 s). */
   readonly timeoutMs?: number;
   /** Finality for view queries. Default "optimistic". */
   readonly finality?: Finality;
+  /**
+   * After an endpoint fails at the transport/HTTP level (network error, 429,
+   * 5xx, a non-JSON-RPC answer, a node-sync error) it moves to the back of the
+   * order for this long, so the next calls go straight to an endpoint that
+   * answered instead of hitting the failing one again. Default 30 s; 0 keeps
+   * the configured order on every call.
+   */
+  readonly cooldownMs?: number;
+  /** Read de-duplication and short-lived caching (off by default). */
+  readonly cache?: boolean | RpcCacheOptions;
+  /**
+   * When `send_tx` returns no outcome (server timeout, or every endpoint
+   * failed after the broadcast may have arrived), `sendTransaction` looks the
+   * transaction up by hash for this long. Default 30 s.
+   */
+  readonly confirmTimeoutMs?: number;
+  /** Delay between those lookups. Default 1000 ms. */
+  readonly confirmIntervalMs?: number;
+}
+
+/**
+ * With caching on, identical concurrent read requests share one HTTP request,
+ * and idempotent reads are reused for a short time. Every `sendTransaction`
+ * clears the cache, so reads that follow a write always go to the network.
+ * Access-key queries (nonces) and transaction lookups are never cached, only
+ * de-duplicated.
+ */
+export interface RpcCacheOptions {
+  /** `query` results (accounts, contract views). Default 1000 ms. */
+  readonly queryTtlMs?: number;
+  /** `gas_price`. Default 30 s. */
+  readonly gasPriceTtlMs?: number;
+  /** `block` at `final` finality (used for the transaction's recent block hash). Default 10 s. */
+  readonly finalBlockTtlMs?: number;
+  /** `EXPERIMENTAL_protocol_config`. Default 10 min. */
+  readonly protocolConfigTtlMs?: number;
+}
+
+export interface WaitForTransactionOptions {
+  /** Status to wait for. Default "EXECUTED_OPTIMISTIC". */
+  readonly waitUntil?: WaitUntil;
+  /** Give up after this long. Default 30 s. */
+  readonly timeoutMs?: number;
+  /** Delay between lookups. Default 1000 ms. */
+  readonly intervalMs?: number;
 }
 
 /** JSON-RPC error returned by a node (not a transport failure). */
@@ -113,11 +164,39 @@ interface JsonRpcResponse {
   error?: JsonRpcErrorBody;
 }
 
-// Node-side conditions where another endpoint may well succeed.
-const RETRYABLE_CAUSES = new Set(['NO_SYNCED_BLOCKS', 'UNAVAILABLE_SHARD', 'NOT_SYNCED_YET', 'INTERNAL_ERROR']);
+// Node-side conditions where another endpoint may well succeed. UNKNOWN_BLOCK: load-balancing
+// gateways (seen on dRPC's testnet endpoint for `gas_price`) pin a block their upstream lacks.
+const RETRYABLE_CAUSES = new Set(['NO_SYNCED_BLOCKS', 'UNAVAILABLE_SHARD', 'NOT_SYNCED_YET', 'INTERNAL_ERROR', 'UNKNOWN_BLOCK']);
+
+/** Methods that only read chain state: safe to de-duplicate (and, per method, to cache). */
+const READ_METHODS = new Set(['query', 'block', 'gas_price', 'EXPERIMENTAL_protocol_config', 'tx', 'EXPERIMENTAL_tx_status', 'status', 'chunk', 'validators']);
+
+/** `final_execution_status` values that mean the transaction and its receipts ran, per requested level. */
+const REACHED: Readonly<Record<WaitUntil, readonly string[]>> = {
+  EXECUTED_OPTIMISTIC: ['EXECUTED_OPTIMISTIC', 'EXECUTED', 'FINAL'],
+  EXECUTED: ['EXECUTED', 'FINAL'],
+  FINAL: ['FINAL'],
+};
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
+}
+
+/** A JSON-RPC error object in nearcore's shape (`name` and/or `cause.name`), as opposed to a proxy's or rate limiter's. */
+function isNodeError(e: unknown): e is JsonRpcErrorBody {
+  return isRecord(e) && (typeof e.name === 'string' || (isRecord(e.cause) && typeof e.cause.name === 'string'));
+}
+
+/**
+ * True when a `tx` / `send_tx` result shows the transaction executed to at
+ * least `waitUntil` (a complete outcome with a matching
+ * `final_execution_status`; nodes without that field count once complete).
+ */
+export function hasReached(raw: unknown, waitUntil: WaitUntil = 'EXECUTED_OPTIMISTIC'): raw is FinalExecutionOutcomeRaw {
+  if (!isCompleteOutcome(raw)) return false;
+  const s = raw.final_execution_status;
+  if (s === undefined) return raw.status !== 'Pending' && raw.status !== 'Unknown';
+  return REACHED[waitUntil].includes(s);
 }
 
 /**
@@ -186,32 +265,136 @@ function describeFailure(failure: unknown): string {
   }
 }
 
-/** Minimal fetch-based NEAR JSON-RPC client with endpoint failover. */
+interface CacheEntry {
+  readonly value: unknown;
+  readonly expiresAt: number;
+}
+
+/**
+ * Minimal fetch-based NEAR JSON-RPC client with adaptive endpoint failover
+ * (cooldown for failing endpoints) and optional read de-duplication/caching.
+ */
 export class NearRpc {
   readonly urls: readonly string[];
   readonly finality: Finality;
+  readonly #methodUrls: Readonly<Partial<Record<string, readonly string[]>>>;
   readonly #fetch: FetchFn;
   readonly #timeoutMs: number;
+  readonly #cooldownMs: number;
+  readonly #cacheTtl: Required<RpcCacheOptions> | null;
+  readonly #confirmTimeoutMs: number;
+  readonly #confirmIntervalMs: number;
+  /** url → time until which it is tried last. */
+  readonly #coolUntil = new Map<string, number>();
+  readonly #cache = new Map<string, CacheEntry>();
+  readonly #inflight = new Map<string, Promise<unknown>>();
+  /** Bumped by every cache clear, so responses to requests started earlier are not stored. */
+  #generation = 0;
   #id = 0;
 
   constructor(options: NearRpcOptions) {
     if (options.urls.length === 0) throw new PerdeError('RPC_UNAVAILABLE', 'at least one RPC URL is required');
     this.urls = [...options.urls];
+    this.#methodUrls = { ...options.methodUrls };
     this.finality = options.finality ?? 'optimistic';
     const f = options.fetch ?? globalThis.fetch;
     this.#fetch = (url, init) => f(url, init);
     this.#timeoutMs = options.timeoutMs ?? 20_000;
+    this.#cooldownMs = options.cooldownMs ?? 30_000;
+    this.#confirmTimeoutMs = options.confirmTimeoutMs ?? 30_000;
+    this.#confirmIntervalMs = options.confirmIntervalMs ?? 1000;
+    const c = options.cache;
+    this.#cacheTtl =
+      c === undefined || c === false
+        ? null
+        : {
+            queryTtlMs: (c === true ? undefined : c.queryTtlMs) ?? 1000,
+            gasPriceTtlMs: (c === true ? undefined : c.gasPriceTtlMs) ?? 30_000,
+            finalBlockTtlMs: (c === true ? undefined : c.finalBlockTtlMs) ?? 10_000,
+            protocolConfigTtlMs: (c === true ? undefined : c.protocolConfigTtlMs) ?? 600_000,
+          };
   }
 
-  /** Raw JSON-RPC call. Transport errors, HTTP 408/429/5xx and node-sync errors fail over. */
+  /**
+   * Endpoints for `method` in the order they will be tried: the configured
+   * order, except that endpoints still cooling down after a failure go last
+   * (soonest-recovered first).
+   */
+  endpointOrder(method: string): readonly string[] {
+    const base = this.#methodUrls[method] ?? this.urls;
+    const now = Date.now();
+    const cooling = (u: string) => (this.#coolUntil.get(u) ?? 0) > now;
+    const healthy = base.filter((u) => !cooling(u));
+    const resting = base.filter(cooling).sort((a, b) => (this.#coolUntil.get(a) ?? 0) - (this.#coolUntil.get(b) ?? 0));
+    return [...healthy, ...resting];
+  }
+
+  /** Forget cached reads (called automatically around every `sendTransaction`). */
+  clearCache(): void {
+    this.#generation++;
+    this.#cache.clear();
+    this.#inflight.clear();
+  }
+
+  #ttl(method: string, params: unknown): number {
+    const t = this.#cacheTtl;
+    if (t === null) return 0;
+    switch (method) {
+      case 'query':
+        return isRecord(params) && params.request_type === 'view_access_key' ? 0 : t.queryTtlMs;
+      case 'gas_price':
+        return t.gasPriceTtlMs;
+      case 'block':
+        return isRecord(params) && params.finality === 'final' ? t.finalBlockTtlMs : 0;
+      case 'EXPERIMENTAL_protocol_config':
+        return t.protocolConfigTtlMs;
+      default:
+        return 0;
+    }
+  }
+
+  /**
+   * Raw JSON-RPC call. Fails over to the next endpoint on anything that is not
+   * a node's JSON-RPC answer: transport errors, HTTP 429, other non-2xx
+   * responses without a nearcore error body (rate limiters, proxies, free-tier
+   * timeouts), unparseable bodies, and node-sync errors. Errors a node
+   * reports about the request itself (`UNKNOWN_ACCOUNT`, …) are thrown as
+   * `RpcError` without trying other endpoints.
+   */
   async call<T>(method: string, params: unknown): Promise<T> {
+    if (this.#cacheTtl === null || !READ_METHODS.has(method)) return this.#callNetwork<T>(method, params);
+    const key = `${method}\u0000${JSON.stringify(params)}`;
+    const hit = this.#cache.get(key);
+    if (hit !== undefined && hit.expiresAt > Date.now()) return hit.value as T;
+    const pending = this.#inflight.get(key);
+    if (pending !== undefined) return pending as Promise<T>;
+    const generation = this.#generation;
+    const ttl = this.#ttl(method, params);
+    const p = this.#callNetwork<T>(method, params)
+      .then((value) => {
+        if (ttl > 0 && generation === this.#generation) this.#cache.set(key, { value, expiresAt: Date.now() + ttl });
+        return value;
+      })
+      .finally(() => {
+        if (this.#inflight.get(key) === p) this.#inflight.delete(key);
+      });
+    this.#inflight.set(key, p);
+    return p;
+  }
+
+  async #callNetwork<T>(method: string, params: unknown): Promise<T> {
     const failures: string[] = [];
-    for (const url of this.urls) {
+    const fail = (url: string, why: string) => {
+      failures.push(`${url}: ${why}`);
+      if (this.#cooldownMs > 0) this.#coolUntil.set(url, Date.now() + this.#cooldownMs);
+    };
+    for (const url of this.endpointOrder(method)) {
       const controller = new AbortController();
       const timer = setTimeout(() => {
         controller.abort();
       }, this.#timeoutMs);
-      let body: JsonRpcResponse;
+      let status: number;
+      let body: unknown;
       try {
         const res = await this.#fetch(url, {
           method: 'POST',
@@ -219,28 +402,39 @@ export class NearRpc {
           body: JSON.stringify({ jsonrpc: '2.0', id: ++this.#id, method, params }),
           signal: controller.signal,
         });
-        if (res.status === 408 || res.status === 429 || res.status >= 500) {
-          failures.push(`${url}: HTTP ${res.status}`);
-          continue;
+        status = res.status;
+        const text = await res.text();
+        try {
+          body = JSON.parse(text);
+        } catch {
+          body = undefined;
         }
-        body = (await res.json()) as JsonRpcResponse;
       } catch (e) {
-        failures.push(`${url}: ${e instanceof Error ? e.message : String(e)}`);
+        fail(url, e instanceof Error ? e.message : String(e));
         continue;
       } finally {
         clearTimeout(timer);
       }
-      if (body.error !== undefined) {
-        const err = body.error;
+      const answer = isRecord(body) ? (body as JsonRpcResponse) : undefined;
+      const nodeAnswer = answer !== undefined && (('result' in answer && answer.error === undefined) || isNodeError(answer.error));
+      if (status === 429 || !nodeAnswer) {
+        const msg = isRecord(answer?.error) && typeof answer.error.message === 'string' ? `: ${answer.error.message.slice(0, 120)}` : '';
+        fail(url, `HTTP ${status}${msg}`);
+        continue;
+      }
+      if (answer.error !== undefined) {
+        const err = answer.error;
         const causeName = err.cause?.name;
         if (causeName !== undefined && RETRYABLE_CAUSES.has(causeName)) {
-          failures.push(`${url}: ${causeName}`);
+          fail(url, causeName);
           continue;
         }
+        this.#coolUntil.delete(url);
         const detail = typeof err.data === 'string' ? err.data : describeFailure(err.data ?? err.cause);
         throw new RpcError(`${method} failed: ${causeName ?? err.name ?? 'error'}: ${detail}`, err.name ?? 'UNKNOWN', causeName, err);
       }
-      return body.result as T;
+      this.#coolUntil.delete(url);
+      return answer.result as T;
     }
     throw new PerdeError('RPC_UNAVAILABLE', `all RPC endpoints failed for ${method}: ${failures.join('; ')}`, failures);
   }
@@ -355,22 +549,32 @@ export class NearRpc {
 
   /**
    * Broadcast and wait (`send_tx`). On a server-side timeout the status is
-   * polled until `waitUntil` is reached. Throws TX_FAILED (details include the
-   * hash) if the transaction is invalid or its execution fails.
+   * polled until `waitUntil` is reached. If every endpoint failed to answer
+   * the broadcast, the transaction may still have reached a node, so it is
+   * looked up by hash before giving up. Throws TX_FAILED if the transaction is
+   * invalid or its execution fails, and RPC_UNAVAILABLE if its outcome could
+   * not be confirmed; both carry `details.hash`.
    */
   async sendTransaction(stx: SignedTransaction, waitUntil: WaitUntil = 'EXECUTED_OPTIMISTIC'): Promise<TxOutcome> {
+    const signerId = stx.transaction.signerId;
+    this.clearCache();
     let raw: FinalExecutionOutcomeRaw;
     try {
       const sent = await this.call<unknown>('send_tx', { signed_tx_base64: signedTransactionBase64(stx), wait_until: waitUntil });
-      raw = isCompleteOutcome(sent) ? sent : (await this.waitForTx(stx.hash, stx.transaction.signerId, waitUntil)).raw;
+      raw = isCompleteOutcome(sent) ? sent : (await this.#confirm(stx.hash, signerId, waitUntil)).raw;
     } catch (e) {
       if (e instanceof RpcError && e.causeName === 'TIMEOUT_ERROR') {
-        raw = (await this.waitForTx(stx.hash, stx.transaction.signerId, waitUntil)).raw;
+        raw = (await this.#confirm(stx.hash, signerId, waitUntil)).raw;
       } else if (e instanceof RpcError && e.causeName === 'INVALID_TRANSACTION') {
         throw new PerdeError('TX_FAILED', `transaction rejected: ${describeFailure(e.data)}`, { hash: stx.hash, error: e.data });
+      } else if (e instanceof PerdeError && e.code === 'RPC_UNAVAILABLE') {
+        // No endpoint answered the broadcast, but one may have accepted it before the response was lost.
+        raw = (await this.#confirm(stx.hash, signerId, waitUntil, e)).raw;
       } else {
         throw e;
       }
+    } finally {
+      this.clearCache();
     }
     const outcome = parseOutcome(raw);
     if (!outcome.success) {
@@ -384,21 +588,50 @@ export class NearRpc {
     return parseOutcome(raw);
   }
 
-  /** Polls `tx` until a complete outcome is available (TIMEOUT / UNKNOWN_TRANSACTION / partial results are retried). */
-  private async waitForTx(hash: string, senderId: string, waitUntil: WaitUntil, attempts = 15): Promise<TxOutcome> {
+  /**
+   * Outcome of a transaction by hash, e.g. to recover a result whose response
+   * was lost. Polls `tx` with `wait_until: "NONE"` (answered immediately, so
+   * no endpoint's request-time cap is ever hit) until the transaction executed
+   * to `waitUntil`; "unknown transaction", partial outcomes and endpoint
+   * failures are retried. Returns the outcome whether it succeeded or failed
+   * (check `success`); throws RPC_UNAVAILABLE (`details.hash`) on timeout.
+   */
+  async waitForTransaction(txHash: string, senderAccountId: string, options: WaitForTransactionOptions = {}): Promise<TxOutcome> {
+    const waitUntil = options.waitUntil ?? 'EXECUTED_OPTIMISTIC';
+    const timeoutMs = options.timeoutMs ?? 30_000;
+    const intervalMs = options.intervalMs ?? 1000;
+    const start = Date.now();
     let last: unknown;
-    for (let i = 0; i < attempts; i++) {
+    for (;;) {
       try {
-        const raw = await this.call<unknown>('tx', { tx_hash: hash, sender_account_id: senderId, wait_until: waitUntil });
-        if (isCompleteOutcome(raw)) return parseOutcome(raw);
-        last = new PerdeError('RPC_ERROR', `transaction ${hash} not executed yet: ${describeFailure(raw).slice(0, 200)}`, raw);
+        const raw = await this.#callNetwork<unknown>('tx', { tx_hash: txHash, sender_account_id: senderAccountId, wait_until: 'NONE' });
+        if (hasReached(raw, waitUntil)) return parseOutcome(raw);
+        last = new PerdeError('RPC_ERROR', `transaction ${txHash} not executed yet: ${describeFailure(raw).slice(0, 200)}`, raw);
       } catch (e) {
         last = e;
-        if (!(e instanceof RpcError) || (e.causeName !== 'TIMEOUT_ERROR' && e.causeName !== 'UNKNOWN_TRANSACTION')) throw e;
+        const retry = (e instanceof RpcError && (e.causeName === 'UNKNOWN_TRANSACTION' || e.causeName === 'TIMEOUT_ERROR')) || (e instanceof PerdeError && e.code === 'RPC_UNAVAILABLE');
+        if (!retry) throw e;
       }
-      await new Promise((r) => setTimeout(r, 1000));
+      if (Date.now() - start + intervalMs > timeoutMs) {
+        throw new PerdeError('RPC_UNAVAILABLE', `transaction ${txHash} not confirmed within ${Math.round(timeoutMs / 1000)} s`, { hash: txHash, last });
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
     }
-    throw new PerdeError('RPC_UNAVAILABLE', `transaction ${hash} not confirmed in time`, last);
+  }
+
+  async #confirm(hash: string, senderId: string, waitUntil: WaitUntil, broadcastError?: PerdeError): Promise<TxOutcome> {
+    try {
+      return await this.waitForTransaction(hash, senderId, { waitUntil, timeoutMs: this.#confirmTimeoutMs, intervalMs: this.#confirmIntervalMs });
+    } catch (e) {
+      if (broadcastError !== undefined && e instanceof PerdeError && e.code === 'RPC_UNAVAILABLE') {
+        throw new PerdeError('RPC_UNAVAILABLE', `transaction ${hash} was signed and sent, but no endpoint confirmed it: ${broadcastError.message}`, {
+          hash,
+          broadcast: broadcastError.details,
+          lookup: e.details,
+        });
+      }
+      throw e;
+    }
   }
 }
 

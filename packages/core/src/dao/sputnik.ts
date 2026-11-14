@@ -21,6 +21,8 @@ export interface SputnikDaoOptions {
   readonly perdeContractId?: string;
   readonly rpcUrls?: readonly string[];
   readonly fetch?: FetchFn;
+  /** Use this RPC client (also for the inner PerdeClient) instead of creating one from `rpcUrls`/`fetch`. */
+  readonly rpc?: NearRpc;
   readonly waitUntil?: WaitUntil;
 }
 
@@ -182,12 +184,12 @@ export class SputnikDao {
     this.network = options.network;
     this.daoId = options.daoId;
     const rpcUrls = options.rpcUrls ?? NETWORKS[options.network].rpcUrls;
-    this.rpc = new NearRpc({ urls: rpcUrls, ...(options.fetch ? { fetch: options.fetch } : {}) });
+    this.rpc = options.rpc ?? new NearRpc({ urls: rpcUrls, ...(options.fetch ? { fetch: options.fetch } : {}) });
     this.waitUntil = options.waitUntil ?? 'EXECUTED_OPTIMISTIC';
     this.perde =
       options.perdeContractId === undefined
         ? undefined
-        : new PerdeClient({ network: options.network, contractId: options.perdeContractId, rpcUrls, waitUntil: this.waitUntil, ...(options.fetch ? { fetch: options.fetch } : {}) });
+        : new PerdeClient({ network: options.network, contractId: options.perdeContractId, rpc: this.rpc, waitUntil: this.waitUntil });
   }
 
   /** Default DAO id for a name on the network's v2 factory. */

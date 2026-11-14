@@ -18,6 +18,8 @@ export type ChainSubject =
       claim: ClaimRecord | null;
       /** Set when this browser also sent the payment (e.g. paying yourself): shows the real paying transaction. */
       sentRecord: SentRecord | null;
+      /** Payments made from this stealth account to fresh ones ("pay onward"). */
+      onward: SentRecord[];
     };
 
 export type TxAction =
@@ -48,6 +50,8 @@ export interface Evidence {
   payTx: TxEvidence | null;
   announcement: AnnouncementEvidence | null;
   claimTx: TxEvidence | null;
+  /** Transactions that paid onward from the stealth account, in the order of `subject.onward`. */
+  onwardTxs: TxEvidence[];
 }
 
 type Obj = Record<string, unknown>;
@@ -116,21 +120,24 @@ export async function loadEvidence(subject: ChainSubject): Promise<Evidence> {
       fetchTx(r.txHash, r.senderId),
       r.announcementIndex !== null ? fetchAnnouncement(r.announcementIndex) : Promise.resolve(null),
     ]);
-    return { payTx, announcement, claimTx: null };
+    return { payTx, announcement, claimTx: null, onwardTxs: [] };
   }
-  const [payTx, announcement, claimTx] = await Promise.all([
+  const [payTx, announcement, claimTx, onwardTxs] = await Promise.all([
     subject.sentRecord ? fetchTx(subject.sentRecord.txHash, subject.sentRecord.senderId) : Promise.resolve(null),
     subject.announcementIndex !== null ? fetchAnnouncement(subject.announcementIndex) : Promise.resolve(null),
     subject.claim ? fetchTx(subject.claim.txHash, subject.stealthAccount) : Promise.resolve(null),
+    Promise.all(subject.onward.map((r) => fetchTx(r.txHash, r.senderId))),
   ]);
-  return { payTx, announcement, claimTx };
+  return { payTx, announcement, claimTx, onwardTxs };
 }
 
 export type EvidenceState = { status: 'idle' } | { status: 'loading' } | { status: 'ready'; evidence: Evidence } | { status: 'error'; message: string };
 
 function subjectKey(s: ChainSubject | null): string {
   if (!s) return '';
-  return s.kind === 'sent' ? `s:${s.record.txHash}:${s.record.stealthAccount}` : `r:${s.stealthAccount}:${s.claim?.txHash ?? ''}:${s.sentRecord?.txHash ?? ''}`;
+  return s.kind === 'sent'
+    ? `s:${s.record.txHash}:${s.record.stealthAccount}`
+    : `r:${s.stealthAccount}:${s.claim?.txHash ?? ''}:${s.sentRecord?.txHash ?? ''}:${s.onward.map((r) => r.txHash).join(',')}`;
 }
 
 export function useEvidence(subject: ChainSubject | null, open: boolean) {

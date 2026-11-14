@@ -22,7 +22,7 @@ const LOOKUP_DEBOUNCE_MS = 350;
 export function useSend(options: { initialRecipient?: string; initialAmount?: string } = {}): SendModel {
   const { state, dispatch, wallet, signer, balance, identity, refreshBalance } = useAppState();
   const toast = useToast();
-  const { limits, error: limitsError } = useSendLimits();
+  const { limits, error: limitsError, retry: retryLimits } = useSendLimits();
   const [recipientInput, setRecipientInput] = useState(options.initialRecipient ?? '');
   const [amountInput, setAmountInput] = useState(options.initialAmount ?? '');
   const [phase, setPhase] = useState<SendPhase>({ phase: 'edit' });
@@ -92,7 +92,8 @@ export function useSend(options: { initialRecipient?: string; initialAmount?: st
     const d = derivations.current;
     if (phase.phase !== 'review' || !d || !wallet || !signer) return;
     const { stealth, quote } = d;
-    setPhase({ phase: 'submitting', quote, step: 'sign' });
+    const startedAtMs = Date.now();
+    setPhase({ phase: 'submitting', quote, step: 'sign', startedAtMs });
     try {
       const res = await executeSend({
         signer,
@@ -101,7 +102,7 @@ export function useSend(options: { initialRecipient?: string; initialAmount?: st
         stealth,
         amountYocto: BigInt(quote.amountYocto),
         announceFeeYocto: BigInt(quote.announceFeeYocto),
-        onStep: (step) => setPhase({ phase: 'submitting', quote, step }),
+        onStep: (step) => setPhase({ phase: 'submitting', quote, step, startedAtMs }),
       });
       const record: SentRecord = {
         id: res.txHash,
@@ -145,6 +146,7 @@ export function useSend(options: { initialRecipient?: string; initialAmount?: st
       ? { minAmountYocto: limits.minAmountYocto.toString(), announceFeeYocto: limits.announceFeeYocto.toString(), gasReserveYocto: limits.gasPerSendYocto.toString() }
       : null,
     limitsError,
+    retryLimits,
     phase,
     canReview,
     review,

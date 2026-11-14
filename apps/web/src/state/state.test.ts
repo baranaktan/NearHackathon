@@ -139,6 +139,32 @@ describe('scan cache', () => {
   });
 });
 
+describe('pay onward and invoice recovery state', () => {
+  it('keeps onward records (sender = the stealth account) through a reload', () => {
+    const onward = sent('t9', { kind: 'onward', senderId: HEX2, stealthAccount: HEX });
+    const m = migrate(JSON.parse(JSON.stringify({ ...initialState(), sent: [onward] })));
+    expect(m.sent).toEqual([onward]);
+  });
+
+  it('adds recovered invoices once and moves the next index past them', () => {
+    const s0 = reducer(initialState(), { type: 'invoice/add', invoice: { amountYocto: null, note: 'mine', createdAtMs: 5 } });
+    const s1 = reducer(s0, { type: 'invoice/recover', indices: [0, 3, 3, -1] });
+    expect(s1.invoices.map((i) => [i.index, i.note])).toEqual([
+      [3, ''],
+      [0, 'mine'],
+    ]);
+    expect(s1.nextInvoiceIndex).toBe(4);
+    expect(reducer(s1, { type: 'invoice/recover', indices: [0, 3] })).toBe(s1);
+  });
+
+  it('remembers that invoice discovery ran, per identity', () => {
+    const base = { ...mergeScan(null, 'perde:me', [], 1, 1), invoicesRecovered: true };
+    expect(migrate(JSON.parse(JSON.stringify({ ...initialState(), scan: base }))).scan?.invoicesRecovered).toBe(true);
+    expect(mergeScan(base, 'perde:me', [], 2, 2).invoicesRecovered).toBe(true);
+    expect(mergeScan(base, 'perde:other', [], 2, 2).invoicesRecovered).toBeUndefined();
+  });
+});
+
 describe('config', () => {
   it('matches deployments/testnet.json', () => {
     expect(APP_CONFIG.contractId).toBe(deployments.contractId);

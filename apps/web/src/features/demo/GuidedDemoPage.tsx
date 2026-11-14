@@ -35,7 +35,7 @@ export default function GuidedDemoPage() {
       <PageHeader
         eyebrow="Guided demo"
         title="See it work in a minute"
-        description="Six short steps on NEAR testnet, plus three bonus tours. Each one is a real action — the checklist ticks itself off from what actually happened in this browser."
+        description="Six short steps on NEAR testnet, plus four bonus tours. Each one is a real action — the checklist ticks itself off from what actually happened in this browser."
         actions={
           state.demo.dismissed ? (
             <Button variant="secondary" size="sm" onClick={() => dispatch({ type: 'demo/update', patch: { dismissed: false } })}>

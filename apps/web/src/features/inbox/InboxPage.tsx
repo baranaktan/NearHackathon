@@ -16,8 +16,11 @@ import type { ChainSubject } from '../../components/chain-evidence';
 import { cn } from '../../lib/cn';
 import { formatDateTime } from '../../lib/format-date';
 import { formatYocto, isImplicitAccount, isNamedAccount, truncateMiddle } from '../../lib/near-format';
+import { TxWaitLine } from '../../components/TxProgress';
 import { useInbox } from './useInbox';
-import type { ClaimEstimate, ClaimMode, FoundPayment, InboxModel, ScanState } from './types';
+import { onwardLimits } from './onward';
+import { OnwardDialog } from './OnwardDialog';
+import type { ClaimEstimate, ClaimMode, FoundPayment, InboxModel, OnwardTerms, ScanState } from './types';
 
 function subjectOf(p: FoundPayment): ChainSubject {
   return {
@@ -28,12 +31,14 @@ function subjectOf(p: FoundPayment): ChainSubject {
     amountYocto: p.amountYocto,
     claim: p.claimRecord,
     sentRecord: p.sentRecord,
+    onward: p.onward,
   };
 }
 
 export default function InboxPage() {
   const m = useInbox();
   const [claiming, setClaiming] = useState<FoundPayment | null>(null);
+  const [paying, setPaying] = useState<FoundPayment | null>(null);
   const [chainFor, setChainFor] = useState<string | null>(null);
   const [chainOpen, setChainOpen] = useState(false);
   const focus = m.payments.find((p) => p.id === chainFor) ?? m.payments.find((p) => p.claim.status === 'claimed') ?? m.payments[0] ?? null;
@@ -115,7 +120,9 @@ export default function InboxPage() {
               <PaymentRow
                 key={p.id}
                 p={p}
+                terms={m.onwardTerms}
                 onClaim={() => setClaiming(p)}
+                onPayOnward={() => setPaying(p)}
                 onChain={() => {
                   setChainFor(p.id);
                   setChainOpen(true);
@@ -132,6 +139,12 @@ export default function InboxPage() {
       </section>
 
       <ClaimDialog m={m} payment={claiming} onClose={() => setClaiming(null)} />
+      <OnwardDialog
+        m={m}
+        payment={paying}
+        onClose={() => setPaying(null)}
+        onSweep={(p) => setClaiming(m.payments.find((x) => x.id === p.id) ?? p)}
+      />
 
       <ChainViewSheet
         open={chainOpen}
@@ -141,6 +154,14 @@ export default function InboxPage() {
         emptyHint="No payment found yet. Send yourself one, rescan, and the chain view shows its real announcement."
         yourView={[
           { label: 'This payment is yours', value: focus ? `Recognised with your view key${focus.source === 'invoice' ? ` (invoice #${focus.invoiceIndex})` : ''}` : '—' },
+          ...(focus && focus.onward.length > 0
+            ? [
+                {
+                  label: 'Paid onward from it',
+                  value: `${focus.onward.length === 1 ? 'One payment' : `${focus.onward.length} payments`} to fresh accounts, signed by this stealth account — your named accounts never appeared.`,
+                },
+              ]
+            : []),
           { label: 'Waiting to be claimed (all payments)', value: <Amount yocto={m.unclaimedYocto} /> },
           { label: 'Who can spend it', value: 'Only you: the account’s key is derived from your spend key, in this browser.' },
         ]}
@@ -193,23 +214,53 @@ function Summary({ m }: { m: InboxModel }) {
   );
 }
 
-function PaymentRow({ p, onClaim, onChain }: { p: FoundPayment; onClaim: () => void; onChain: () => void }) {
+function PaymentRow({
+  p,
+  terms,
+  onClaim,
+  onPayOnward,
+  onChain,
+}: {
+  p: FoundPayment;
+  terms: OnwardTerms | null;
+  onClaim: () => void;
+  onPayOnward: () => void;
+  onChain: () => void;
+}) {
   const c = p.claim;
-  const empty = p.exists === false || (p.balanceYocto !== null && BigInt(p.balanceYocto) === 0n);
+  const empty = p.exists === false || (p.balanceYocto !== null && BigInt(p.balanceYocto) === 0n) || p.spend === 'spent';
+  const canOnward =
+    !!terms &&
+    p.balanceYocto !== null &&
+    onwardLimits({ balanceYocto: BigInt(p.balanceYocto), announceFeeYocto: terms.announceFeeYocto, gasReserveYocto: terms.gasReserveYocto, minAmountYocto: terms.minAmountYocto }).canPay;
   return (
     <li className="grid gap-4 border-t border-line px-5 py-4.5 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-6">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Amount yocto={p.amountYocto} size="lg" className={c.status === 'claimed' ? 'text-fg-muted' : 'text-fg'} />
           {p.source === 'invoice' ? <Badge tone="brass">Invoice #{p.invoiceIndex}</Badge> : <Badge>Announcement #{p.announcementIndex}</Badge>}
+          {p.sentRecord?.kind === 'onward' && <Badge>Paid onward to you</Badge>}
           {p.note && <span className="min-w-0 truncate text-[13px] text-fg-muted">{p.note}</span>}
         </div>
+        {p.onward.length > 0 && (
+          <ul className="mt-2 space-y-1 text-[12.5px] text-fg-muted">
+            {p.onward.map((r) => (
+              <li key={r.txHash} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <span>
+                  Paid <Amount yocto={r.amountYocto} size="sm" className="text-fg" /> onward to{' '}
+                  {r.metaAddress && r.recipientLabel.startsWith('Yourself') ? 'yourself' : <span className="font-mono">{truncateMiddle(r.recipientLabel, 12, 6)}</span>}
+                </span>
+                <TxLink hash={r.txHash} label="tx" className="min-h-6 text-[12px]" />
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] text-fg-faint">
           <AddressChip value={p.stealthAccount} size="sm" explorer label="Stealth account" />
           {p.timestampMs !== null && <span>{p.source === 'invoice' ? `invoice created ${formatDateTime(p.timestampMs)}` : formatDateTime(p.timestampMs)}</span>}
           {p.balanceYocto !== null && c.status !== 'claimed' && !empty && BigInt(p.balanceYocto) !== BigInt(p.amountYocto) && (
             <span>
-              balance <Amount yocto={p.balanceYocto} size="sm" />
+              {p.spend === 'partially-spent' ? 'left' : 'balance'} <Amount yocto={p.balanceYocto} size="sm" maxFractionDigits={5} />
             </span>
           )}
           <button type="button" onClick={onChain} className="inline-flex min-h-7 items-center gap-1 underline decoration-line-strong underline-offset-4 hover:text-fg">
@@ -221,20 +272,39 @@ function PaymentRow({ p, onClaim, onChain }: { p: FoundPayment; onClaim: () => v
       <div className="flex min-w-0 flex-col items-start gap-1.5 sm:items-end">
         {c.status === 'unclaimed' && p.balanceYocto === null && <Skeleton className="h-9 w-24" />}
         {c.status === 'unclaimed' && p.balanceYocto !== null && !empty && (
-          <Button size="sm" onClick={onClaim}>
-            Claim to…
-          </Button>
+          <>
+            {p.spend === 'partially-spent' && <Badge tone="brass">Partly paid onward</Badge>}
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              {canOnward && (
+                <Button size="sm" variant="secondary" onClick={onPayOnward}>
+                  Pay someone from here
+                </Button>
+              )}
+              <Button size="sm" onClick={onClaim}>
+                {p.spend === 'partially-spent' ? 'Claim the rest…' : 'Claim to…'}
+              </Button>
+            </div>
+          </>
         )}
-        {c.status === 'unclaimed' && empty && <Badge>{p.exists === false ? 'Already emptied' : 'Empty'}</Badge>}
+        {c.status === 'unclaimed' && empty && (
+          <Badge tone={p.spend === 'spent' ? 'success' : 'neutral'} dot={p.spend === 'spent'}>
+            {p.spend === 'spent' ? 'Spent onward' : p.exists === false ? 'Already emptied' : 'Empty'}
+          </Badge>
+        )}
         {c.status === 'claiming' && (
-          <p className="flex items-center gap-2 text-[13px] text-fg-muted" role="status">
-            <Spinner size={14} /> Claiming to <span className="font-mono text-fg">{truncateMiddle(c.destination, 10, 6)}</span>
-          </p>
+          <div className="max-w-xs text-[13px] text-fg-muted sm:text-right" role="status">
+            <p className="flex items-center gap-2 sm:justify-end">
+              <Spinner size={14} /> Claiming to <span className="font-mono text-fg">{truncateMiddle(c.destination, 10, 8)}</span>
+            </p>
+            <p className="mt-1 text-[12.5px] text-fg-faint">
+              <TxWaitLine step={c.step} startedAtMs={c.startedAtMs} />
+            </p>
+          </div>
         )}
         {c.status === 'claimed' && (
           <>
             <Badge tone="success" dot>
-              Claimed {formatYocto(c.claimedYocto)} to {truncateMiddle(c.destination, 12, 6)}
+              Claimed {formatYocto(c.claimedYocto)} to {truncateMiddle(c.destination, 12, 8)}
             </Badge>
             <TxLink hash={c.txHash} label="Claim tx" />
           </>
@@ -401,7 +471,8 @@ function ClaimDialog({ m, payment, onClose }: { m: InboxModel; payment: FoundPay
         {named ? (
           <Callout tone="warn" title="This links the payment to that account">
             A claim is a public transaction. Anyone can now see that this stealth account paid <span className="font-mono">{trimmed}</span>. To keep the curtain
-            closed, claim to a brand-new implicit account you control (transfer mode creates it) or leave the funds where they are.
+            closed, claim to a brand-new implicit account you control (transfer mode creates it), leave the funds where they are — or pay onward without ever
+            claiming (“Pay someone from here” in the Inbox).
           </Callout>
         ) : (
           <Callout tone="info">

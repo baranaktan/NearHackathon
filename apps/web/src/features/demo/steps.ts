@@ -4,7 +4,7 @@
  */
 import type { PersistedState } from '../../state/schema';
 
-export type DemoStepId = 'wallet' | 'identity' | 'send' | 'inbox' | 'chain' | 'claim' | 'invoice' | 'payroll' | 'dao';
+export type DemoStepId = 'wallet' | 'identity' | 'send' | 'inbox' | 'chain' | 'claim' | 'onward' | 'invoice' | 'payroll' | 'dao';
 
 export interface DemoStep {
   id: DemoStepId;
@@ -81,8 +81,17 @@ export function demoSteps(state: PersistedState, metaAddress: string | null): De
       bonus: false,
     },
     {
-      id: 'invoice',
+      id: 'onward',
       n: 7,
+      title: 'Pay onward without claiming',
+      body: 'Send another payment to yourself, then use “Pay someone from here”: the stealth account pays a fresh one directly, so your named account never appears.',
+      to: '/app/inbox',
+      done: state.sent.some((r) => r.kind === 'onward'),
+      bonus: true,
+    },
+    {
+      id: 'invoice',
+      n: 8,
       title: 'Create an invoice & get a cross-chain quote',
       body: 'A one-time account anyone can pay, plus a real NEAR Intents dry quote from another chain.',
       to: '/app/invoice',
@@ -91,7 +100,7 @@ export function demoSteps(state: PersistedState, metaAddress: string | null): De
     },
     {
       id: 'payroll',
-      n: 8,
+      n: 9,
       title: 'Run payroll',
       body: 'Several private payments in one transaction. The sample uses your own meta-address so you can find them.',
       to: '/app/payroll',
@@ -100,7 +109,7 @@ export function demoSteps(state: PersistedState, metaAddress: string | null): De
     },
     {
       id: 'dao',
-      n: 9,
+      n: 10,
       title: 'Pay from a DAO treasury',
       body: 'Propose a payout from the open demo SputnikDAO to your own meta-address, approve it, and find it in the Inbox.',
       to: '/app/dao',

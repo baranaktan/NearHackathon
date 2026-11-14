@@ -1,11 +1,14 @@
-/** View model for the Inbox page (scan + claim). Amounts are yoctoNEAR strings. */
+/** View model for the Inbox page (scan + claim + pay onward). Amounts are yoctoNEAR strings. */
+import type { Claimable } from '@perde/core';
+import type { TxStep } from '../../flows/tx';
 import type { ClaimRecord, SentRecord } from '../../state/schema';
+import type { SpendState } from './onward';
 
 export type ClaimMode = 'transfer' | 'deleteAccount';
 
 export type ClaimState =
   | { status: 'unclaimed' }
-  | { status: 'claiming'; destination: string }
+  | { status: 'claiming'; destination: string; step: TxStep; startedAtMs: number }
   | { status: 'claimed'; destination: string; txHash: string; claimedYocto: string; mode: ClaimMode }
   | { status: 'error'; destination: string; message: string };
 
@@ -29,8 +32,11 @@ export interface FoundPayment {
   claim: ClaimState;
   /** Raw claim record (for the chain view). */
   claimRecord: ClaimRecord | null;
-  /** This browser also sent it (paying yourself, payroll sample, invoice paid from here). */
+  /** This browser also sent it (paying yourself, payroll sample, invoice paid from here, or paid onward from another stealth account). */
   sentRecord: SentRecord | null;
+  /** Payments made FROM this stealth account ("pay onward"), newest first. */
+  onward: SentRecord[];
+  spend: SpendState;
 }
 
 export type ScanState =
@@ -56,6 +62,13 @@ export type ClaimEstimate =
     }
   | { status: 'error'; message: string };
 
+/** Contract fee/minimum and one send's gas reserve (null until read from chain). */
+export interface OnwardTerms {
+  announceFeeYocto: bigint;
+  minAmountYocto: bigint;
+  gasReserveYocto: bigint;
+}
+
 export interface InboxModel {
   hasIdentity: boolean;
   scan: ScanState;
@@ -65,8 +78,15 @@ export interface InboxModel {
   destinationSuggestions: string[];
   /** Announcements are read from here (cached cursor). */
   cursor: number;
+  /** Own meta-address (pay-onward shortcut). */
+  selfMetaAddress: string | null;
+  onwardTerms: OnwardTerms | null;
   rescan(): void;
   rescanFromStart(): void;
   estimateClaim(paymentId: string, destination: string, mode: ClaimMode): Promise<ClaimEstimate>;
   claim(paymentId: string, destination: string, mode: ClaimMode): void;
+  /** What signs for this payment's stealth account (null if the scan cache lost it). */
+  claimTarget(paymentId: string): Claimable | null;
+  /** Re-read one stealth account's balance from chain (after paying onward from it). */
+  refreshAccount(stealthAccount: string, balanceBefore?: bigint): Promise<bigint | null>;
 }

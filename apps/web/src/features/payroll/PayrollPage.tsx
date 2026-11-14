@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowLeft, CircleCheck, Download, FileUp, Sparkles, TriangleAlert, XCircle } from 'lucide-react';
 import { PageHeader } from '../../app-shell/PageHeader';
 import { Card, CardHeader, DataRow } from '../../ui/Card';
@@ -7,10 +7,10 @@ import { Badge } from '../../ui/Badge';
 import { Field, Textarea } from '../../ui/Field';
 import { AddressChip } from '../../ui/AddressChip';
 import { Callout, EmptyState } from '../../ui/Feedback';
-import { Timeline, type StepStatus } from '../../ui/Stepper';
 import { TxLink } from '../../ui/TxLink';
 import { Spinner } from '../../ui/Spinner';
 import { Amount } from '../../components/Amount';
+import { TxProgress } from '../../components/TxProgress';
 import { APP_CONFIG } from '../../config';
 import { cn } from '../../lib/cn';
 import { truncateMiddle } from '../../lib/near-format';
@@ -258,22 +258,19 @@ function ReviewStep({ m }: { m: PayrollModel }) {
 }
 
 function Submitting({ m, phase }: { m: PayrollModel; phase: Extract<PayrollPhase, { phase: 'submitting' }> }) {
-  const order = ['sign', 'broadcast', 'confirm'] as const;
-  const at = order.indexOf(phase.step);
-  const st = (i: number): StepStatus => (i < at ? 'done' : i === at ? 'active' : 'pending');
+  // Mounted when sending starts; the elapsed-time wording counts from here.
+  const [startedAt] = useState(() => Date.now());
   return (
     <Card aria-busy="true">
       <CardHeader
         title={`Sending ${m.validCount} payments`}
         description={phase.of === 1 ? 'A single transaction with one send action per row.' : `Transaction ${phase.tx} of ${phase.of}.`}
       />
-      <Timeline
+      <TxProgress
         label="Batch progress"
-        steps={[
-          { id: 'sign', label: 'Fresh accounts derived and signed in your browser', status: st(0) },
-          { id: 'broadcast', label: 'Broadcast and executed on NEAR testnet', status: st(1) },
-          { id: 'confirm', label: 'Announcements read back from the contract', status: st(2) },
-        ]}
+        step={phase.step}
+        startedAtMs={startedAt}
+        labels={{ sign: 'Fresh accounts derived and signed in your browser', confirm: 'Announcements read back from the contract' }}
       />
     </Card>
   );

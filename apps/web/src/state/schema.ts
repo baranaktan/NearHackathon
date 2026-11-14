@@ -34,7 +34,8 @@ export interface InvoiceRecord {
 
 export interface SentRecord {
   id: string;
-  kind: 'send' | 'payroll' | 'invoice';
+  /** "onward": paid from one of your own stealth accounts (senderId is that account). */
+  kind: 'send' | 'payroll' | 'invoice' | 'onward';
   txHash: string;
   atMs: number;
   senderId: string;
@@ -78,6 +79,11 @@ export interface ScanCache {
   nextIndex: number;
   payments: CachedPayment[];
   scannedAtMs: number;
+  /**
+   * The one-time full invoice discovery (gap limit 20) ran for this identity;
+   * later scans only check the invoices this browser knows plus the next index.
+   */
+  invoicesRecovered?: boolean;
 }
 
 export interface DemoProgress {
@@ -153,7 +159,7 @@ function invoice(x: unknown): InvoiceRecord | null {
 
 function sent(x: unknown): SentRecord | null {
   if (!isObj(x) || !str(x.id) || !str(x.txHash) || !hex64(x.stealthAccount) || !yocto(x.amountYocto)) return null;
-  const kind = x.kind === 'payroll' || x.kind === 'invoice' ? x.kind : 'send';
+  const kind = x.kind === 'payroll' || x.kind === 'invoice' || x.kind === 'onward' ? x.kind : 'send';
   const batch = isObj(x.batch) && int(x.batch.tx) && int(x.batch.of) ? { tx: x.batch.tx, of: x.batch.of } : null;
   return {
     id: x.id,
@@ -204,6 +210,7 @@ function scan(x: unknown): ScanCache | null {
     nextIndex: x.nextIndex,
     payments: x.payments.map(cachedPayment).filter((p): p is CachedPayment => p !== null),
     scannedAtMs: int(x.scannedAtMs) ? x.scannedAtMs : 0,
+    ...(x.invoicesRecovered === true ? { invoicesRecovered: true } : {}),
   };
 }
 

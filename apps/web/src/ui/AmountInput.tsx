@@ -10,11 +10,13 @@ export interface AmountInputProps extends Omit<InputHTMLAttributes<HTMLInputElem
   symbol?: string;
   /** Shows a "Max" action inside the field. */
   onMax?: () => void;
+  /** Text of the max action. Default "Max". */
+  maxLabel?: string;
   size?: 'md' | 'lg';
 }
 
 export const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(function AmountInput(
-  { value, onValueChange, symbol = 'NEAR', onMax, size = 'md', className, ...rest },
+  { value, onValueChange, symbol = 'NEAR', onMax, maxLabel = 'Max', size = 'md', className, ...rest },
   ref,
 ) {
   return (
@@ -32,7 +34,7 @@ export const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(functi
           controlClasses,
           'num font-mono tracking-tight',
           size === 'lg' ? 'h-16 pl-4 text-[28px] sm:text-[32px]' : 'h-11 pl-3.5 text-[16px]',
-          onMax ? (size === 'lg' ? 'pr-36' : 'pr-30') : size === 'lg' ? 'pr-24' : 'pr-18',
+          onMax ? (size === 'lg' ? (maxLabel.length > 3 ? 'pr-44' : 'pr-36') : maxLabel.length > 3 ? 'pr-38' : 'pr-30') : size === 'lg' ? 'pr-24' : 'pr-18',
         )}
         {...rest}
       />
@@ -43,7 +45,7 @@ export const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(functi
             onClick={onMax}
             className="pointer-events-auto relative h-7 rounded-sm border border-line-strong px-2 text-[12px] font-medium uppercase tracking-[0.08em] text-fg-muted hover:border-brass hover:text-fg after:absolute after:-inset-2 after:content-['']"
           >
-            Max
+            {maxLabel}
           </button>
         )}
         <span className={cn('font-mono text-fg-faint', size === 'lg' ? 'text-[15px]' : 'text-[13px]')} aria-hidden>

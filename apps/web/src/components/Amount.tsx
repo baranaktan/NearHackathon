@@ -9,7 +9,7 @@ export function Amount({
   className,
   size = 'md',
 }: {
-  yocto: string;
+  yocto: string | bigint;
   symbol?: string;
   maxFractionDigits?: number;
   className?: string;

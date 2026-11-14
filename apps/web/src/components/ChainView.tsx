@@ -38,13 +38,14 @@ function actionLine(a: TxAction, receiverId: string): ReactNode {
     case 'FunctionCall':
       return (
         <>
-          <span className="font-mono">{receiverId}</span> · <span className="font-mono text-fg">{a.method}()</span> with {near(a.depositYocto)} attached
+          <span className="font-mono">{receiverId}</span> · <span className="font-mono text-fg">{a.method}()</span> with{' '}
+          <span className="whitespace-nowrap">{near(a.depositYocto)}</span> attached
         </>
       );
     case 'Transfer':
       return (
         <>
-          Transfer {near(a.depositYocto)} to <span className="font-mono">{truncateMiddle(receiverId, 10, 8)}</span>
+          Transfer <span className="whitespace-nowrap">{near(a.depositYocto)}</span> to <span className="font-mono">{truncateMiddle(receiverId, 10, 8)}</span>
         </>
       );
     case 'DeleteAccount':
@@ -83,7 +84,9 @@ function TxBlock({ title, tx }: { title: string; tx: TxEvidence }) {
             {actionLine(a, tx.receiverId)}
           </Row>
         ))}
-        <Row label="Status">{tx.success ? 'Succeeded' : 'Failed'} · {near(tx.tokensBurntYocto)} burnt as gas</Row>
+        <Row label="Status">
+          {tx.success ? 'Succeeded' : 'Failed'} · <span className="whitespace-nowrap">{near(tx.tokensBurntYocto)}</span> burnt as gas
+        </Row>
       </dl>
     </div>
   );
@@ -109,6 +112,17 @@ function ledgerRows(subject: ChainSubject, ev: Evidence): LedgerRowData[] {
       to: truncateMiddle(subject.stealthAccount, 4, 4),
       amount: near(ev.announcement?.amountYocto ?? subject.amountYocto),
       highlight: 'veiled',
+    });
+    subject.onward.forEach((r, i) => {
+      const tx = ev.onwardTxs[i];
+      rows.push({
+        id: `onward-${r.txHash}`,
+        ref: tx ? truncateMiddle(tx.hash, 4, 4) : 'onward',
+        from: truncateMiddle(subject.stealthAccount, 4, 4),
+        to: truncateMiddle(r.stealthAccount, 4, 4),
+        amount: near(r.amountYocto),
+        highlight: 'veiled',
+      });
     });
     if (ev.claimTx && subject.claim) {
       rows.push({
@@ -166,6 +180,9 @@ function Observer({ subject, ev }: { subject: ChainSubject; ev: Evidence }) {
           explorer page.
         </p>
       )}
+      {ev.onwardTxs.map((tx) => (
+        <TxBlock key={tx.hash} title="Paid onward · signed by the stealth account itself" tx={tx} />
+      ))}
       {ev.claimTx && <TxBlock title="Claim transaction" tx={ev.claimTx} />}
     </div>
   );
@@ -176,7 +193,16 @@ function observerNote(subject: ChainSubject, ev: Evidence): ReactNode {
     return (
       <>
         The incoming payment is unlinkable — but the claim is a normal transaction, so it now publicly connects this stealth account to{' '}
-        <span className="font-mono text-fg">{subject.claim.destination}</span>.
+        <span className="font-mono text-fg">{subject.claim.destination}</span>
+        {subject.onward.length > 0 ? '. The onward payment before it stays unlinked: it went to another fresh account.' : '.'}
+      </>
+    );
+  }
+  if (subject.kind === 'received' && subject.onward.length > 0) {
+    return (
+      <>
+        Paid onward from a fresh account — still nothing links it to you. To an observer, one never-seen account called{' '}
+        <span className="font-mono text-fg">send</span> on the Perde contract and another never-seen account received the money.
       </>
     );
   }

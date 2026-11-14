@@ -5,10 +5,13 @@
  * port, injects an EXISTING funded testnet account into the app's storage (no
  * faucet call), and drives the real flows with Playwright:
  *   identity → send 0.05 NEAR to own meta-address → inbox finds it → chain view
- *   → claim back → invoice → pay it from #/pay → inbox shows it → dry quote →
+ *   → pay 0.02 onward from the stealth account to own meta-address → inbox finds
+ *   the new payment → claim both back → invoice → pay it from #/pay → inbox shows it → dry quote →
  *   payroll sample (2) → DAO payout (propose + approve) → inbox finds it →
  *   audit with viewing key → verify the receipt → claim the invoice back.
- * Screenshots go to screenshots/wired/. Every transaction link is printed.
+ * Screenshots go to screenshots/wired/. Every transaction link is printed, with
+ * RPC requests per step. Exits non-zero if any step fails OR the browser logged
+ * a console error/warning, a page error, or the layout overflowed horizontally.
  *
  *   PERDE_FUNDER_JSON=/path/to/funder.json node scripts/e2e-smoke.mjs [--no-build] [--headed]
  *   node scripts/e2e-smoke.mjs --no-build --faucet-check   # one real faucet account via the UI
@@ -19,7 +22,7 @@
  */
 import { createServer } from 'node:net';
 import { execSync } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -37,6 +40,8 @@ if (funder && (typeof funder.accountId !== 'string' || typeof funder.secretKey !
 
 if (!args.includes('--no-build')) execSync('npm run build', { cwd: root, stdio: 'inherit' });
 await mkdir(outDir, { recursive: true });
+// A failure capture from an earlier run would be mistaken for this run's.
+await rm(join(outDir, 'zz-failure.png'), { force: true });
 
 const port = await new Promise((res, rej) => {
   const s = createServer();
@@ -102,7 +107,27 @@ const initialState = {
 const consoleProblems = [];
 const links = [];
 const shots = [];
-const log = (step, msg) => console.log(`[${step}] ${msg}`);
+/** RPC traffic per step: {step: {total, byHost: {host: n}, byMethod: {method: n}, failed: n, non2xx: n}}. */
+const rpcStats = {};
+let currentStep = 'start';
+const log = (step, msg) => {
+  currentStep = step;
+  console.log(`[${step}] ${msg}`);
+};
+const RPC_HOSTS = /fastnear\.com|drpc\.org|near\.org|intea\.rs|zan\.top/;
+function rpcMethod(req) {
+  try {
+    const body = JSON.parse(req.postData() ?? '{}');
+    if (body.method === 'query') return `query:${body.params?.request_type ?? '?'}${body.params?.method_name ? '.' + body.params.method_name : ''}`;
+    return body.method ?? '?';
+  } catch {
+    return '?';
+  }
+}
+function stepStats() {
+  rpcStats[currentStep] ??= { total: 0, byHost: {}, byMethod: {}, failed: 0, non2xx: 0 };
+  return rpcStats[currentStep];
+}
 const link = (label, href) => {
   links.push({ label, href });
   console.log(`  ↳ ${label}: ${href}`);
@@ -115,6 +140,21 @@ function watch(page, tag) {
     if (m.type() === 'error' || m.type() === 'warning') consoleProblems.push(`${tag}: [${m.type()}] ${m.text()}`);
   });
   page.on('pageerror', (e) => consoleProblems.push(`${tag}: [pageerror] ${e.message}`));
+  page.on('request', (req) => {
+    if (req.method() !== 'POST' || !RPC_HOSTS.test(new URL(req.url()).host)) return;
+    const s = stepStats();
+    const host = new URL(req.url()).host;
+    const m = rpcMethod(req);
+    s.total++;
+    s.byHost[host] = (s.byHost[host] ?? 0) + 1;
+    s.byMethod[m] = (s.byMethod[m] ?? 0) + 1;
+  });
+  page.on('requestfailed', (req) => {
+    if (RPC_HOSTS.test(new URL(req.url()).host) && req.method() === 'POST') stepStats().failed++;
+  });
+  page.on('response', (res) => {
+    if (RPC_HOSTS.test(new URL(res.url()).host) && res.request().method() === 'POST' && res.status() >= 300) stepStats().non2xx++;
+  });
 }
 
 async function newContext(viewport, theme, storageState) {
@@ -158,6 +198,7 @@ try {
   watch(page, 'desktop');
 
   // 0. Guided demo with the injected wallet.
+  log('start', 'guided demo page');
   await go(page, '/app/start');
   await page.getByRole('heading', { name: 'See it work in a minute' }).waitFor();
   await shot(page, '01-guided-demo--desktop-dark');
@@ -205,14 +246,59 @@ try {
   await shot(page, '07-chain-view--desktop-dark');
   await page.keyboard.press('Escape');
 
-  // 5. Claim back to the wallet (full sweep).
-  log('claim', 'full sweep to the demo wallet');
-  await page.getByRole('button', { name: 'Claim to…' }).first().click();
+  // 5. Pay 0.02 NEAR onward from that stealth account to our own meta-address: the stealth key signs, the wallet never appears.
+  log('onward', 'pay 0.02 NEAR onward from the stealth account to own meta-address');
+  const hex64 = (titles) => titles.filter((t) => /^[0-9a-f]{64}$/.test(t ?? ''));
+  const rowOf = (id) => page.locator('li', { has: page.locator(`[title="${id}"]`) }).first();
+  const firstRow = page.locator('li', { has: page.getByRole('button', { name: 'Pay someone from here' }) }).first();
+  const firstStealth = hex64(await firstRow.locator('[title]').evaluateAll((els) => els.map((e) => e.getAttribute('title'))))[0];
+  if (!firstStealth) throw new Error('no stealth account on the first inbox row');
+  await firstRow.getByRole('button', { name: 'Pay someone from here' }).click();
+  const onwardDialog = page.getByRole('dialog');
+  await onwardDialog.getByRole('button', { name: 'My own address' }).click();
+  await onwardDialog.getByLabel('Amount').fill('0.02');
+  await onwardDialog.getByText('Recipient receives').waitFor({ timeout: 30_000 });
+  await shot(page, '08a-onward-form--desktop-dark');
+  await onwardDialog.getByRole('button', { name: 'Review payment' }).click();
+  await onwardDialog.getByRole('button', { name: 'Confirm and pay' }).waitFor();
+  await shot(page, '08b-onward-review--desktop-dark');
+  await onwardDialog.getByRole('button', { name: 'Confirm and pay' }).click();
+  await onwardDialog.getByText('Still nothing links it to you.').waitFor({ timeout: T.tx });
+  link('onward tx', await onwardDialog.getByRole('link', { name: /View transaction/ }).first().getAttribute('href'));
+  const onwardStealth = hex64(await onwardDialog.locator('[title]').evaluateAll((els) => els.map((e) => e.getAttribute('title')))).find((t) => t !== firstStealth);
+  if (!onwardStealth) throw new Error('the onward payment did not show its fresh account');
+  const settlement = await onwardDialog
+    .locator('dl', { hasText: 'Stays in this stealth account' })
+    .innerText({ timeout: 5000 })
+    .catch(() => '(leftover not shown)');
+  log('onward', settlement.replace(/\s+/g, ' '));
+  await shot(page, '08c-onward-done--desktop-dark');
+  await onwardDialog.getByRole('button', { name: 'Done' }).click();
+
+  // 6. The onward payment shows up in the Inbox as a new payment (rescan runs after paying yourself).
+  log('onward', `inbox finds the onward payment ${onwardStealth.slice(0, 8)}…`);
+  await page.locator(`[title="${onwardStealth}"]`).first().waitFor({ timeout: T.scan });
+  await rowOf(firstStealth).getByText('Partly paid onward').waitFor({ timeout: 30_000 });
+  await shot(page, '08d-inbox-after-onward--desktop-dark');
+  await rowOf(firstStealth).getByRole('button', { name: 'Chain view' }).click();
+  await page.getByText('Paid onward · signed by the stealth account itself').first().waitFor({ timeout: 30_000 });
+  await shot(page, '08e-chain-view-onward--desktop-dark');
+  await page.keyboard.press('Escape');
+
+  // 7. Claim both back to the wallet (full sweeps): the remainder of the first payment, then the onward one.
+  log('claim', 'full sweep of the remainder to the demo wallet');
+  await rowOf(firstStealth).getByRole('button', { name: 'Claim the rest…' }).click();
   await page.getByText('Destination receives about').waitFor({ timeout: 30_000 });
   await shot(page, '08-claim-dialog--desktop-dark');
   await page.getByRole('dialog').getByRole('button', { name: 'Claim', exact: true }).click();
-  await page.getByText(/^Claimed .* to /).first().waitFor({ timeout: T.tx });
-  link('claim tx', await page.getByRole('link', { name: /Claim tx/ }).first().getAttribute('href'));
+  await rowOf(firstStealth).getByText(/^Claimed .* to /).waitFor({ timeout: T.tx });
+  link('claim tx (remainder)', await rowOf(firstStealth).getByRole('link', { name: /Claim tx/ }).getAttribute('href'));
+  log('claim', 'full sweep of the onward payment to the demo wallet');
+  await rowOf(onwardStealth).getByRole('button', { name: 'Claim to…' }).click();
+  await page.getByText('Destination receives about').waitFor({ timeout: 30_000 });
+  await page.getByRole('dialog').getByRole('button', { name: 'Claim', exact: true }).click();
+  await rowOf(onwardStealth).getByText(/^Claimed .* to /).waitFor({ timeout: T.tx });
+  link('claim tx (onward payment)', await rowOf(onwardStealth).getByRole('link', { name: /Claim tx/ }).getAttribute('href'));
   await shot(page, '09-inbox-claimed--desktop-dark');
 
   // 6. Invoice.
@@ -394,9 +480,25 @@ try {
 
 await writeFile(
   join(outDir, 'e2e-summary.json'),
-  JSON.stringify({ ranAt: new Date().toISOString(), ok: exitCode === 0, account: funder.accountId, links, consoleProblems, screenshots: shots.map((s) => s.slice(root.length + 1)) }, null, 2),
+  JSON.stringify(
+    { ranAt: new Date().toISOString(), ok: exitCode === 0 && consoleProblems.length === 0, account: funder.accountId, links, consoleProblems, rpcStats, screenshots: shots.map((s) => s.slice(root.length + 1)) },
+    null,
+    2,
+  ),
 );
 console.log(`\n${links.length} transaction links, ${shots.length} screenshots in ${outDir}`);
-console.log(`console errors/warnings + layout problems: ${consoleProblems.length}`);
+console.log('\nRPC requests per step (total · hosts · failed/non-2xx):');
+let rpcTotal = 0;
+for (const [step, s] of Object.entries(rpcStats)) {
+  rpcTotal += s.total;
+  const hosts = Object.entries(s.byHost).map(([h, n]) => `${h.split('.').slice(-2, -1)[0]}=${n}`).join(' ');
+  console.log(`  ${step.padEnd(10)} ${String(s.total).padStart(4)} · ${hosts} · failed ${s.failed} / non-2xx ${s.non2xx}`);
+}
+console.log(`  ${'TOTAL'.padEnd(10)} ${String(rpcTotal).padStart(4)}`);
+console.log(`\nconsole errors/warnings + page errors + layout problems: ${consoleProblems.length}`);
 for (const p of consoleProblems) console.log(' - ' + p);
+if (exitCode === 0 && consoleProblems.length > 0) {
+  console.error('E2E FAILED: the run finished, but the browser reported the problems above.');
+  exitCode = 3;
+}
 process.exit(exitCode);

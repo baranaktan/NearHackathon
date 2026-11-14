@@ -7,6 +7,7 @@ import {
   encodeMetaAddress,
   encodeViewingKey,
   keysFromMnemonic,
+  NearRpc,
   OneClickClient,
   PerdeClient,
   SeedSigner,
@@ -18,12 +19,8 @@ import {
 } from '@perde/core';
 import { APP_CONFIG } from '../config';
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 /** At most this many RPC requests in flight from this tab: public RPCs rate-limit bursts. */
-const MAX_IN_FLIGHT = 4;
-/** After a failure, skip that endpoint for a moment so core fails over immediately. */
-const COOLDOWN_MS = 8000;
+export const MAX_IN_FLIGHT = 4;
 
 let inFlight = 0;
 const waiters: Array<() => void> = [];
@@ -40,49 +37,36 @@ function release(): void {
   else inFlight--;
 }
 
-const cooling = new Map<string, number>();
-
-/**
- * fetch for NEAR RPC: a small concurrency limit, a per-endpoint cooldown and
- * one delayed retry. Public RPCs answer bursts with HTTP 429 — often without
- * CORS headers, so the browser reports a bare TypeError. While an endpoint
- * cools down, requests fail fast and core's failover moves to the next one
- * (unless every endpoint is cooling, in which case we wait for the first).
- * Re-sending is safe: views are reads, and a signed transaction has a fixed hash.
- */
-export async function resilientFetch(url: string, init: RequestInit): Promise<Response> {
-  const host = new URL(url).host;
-  const until = cooling.get(host) ?? 0;
-  if (Date.now() < until) {
-    const allCooling = APP_CONFIG.rpcUrls.every((u) => (cooling.get(new URL(u).host) ?? 0) > Date.now());
-    if (!allCooling) throw new TypeError(`${host} is cooling down after a failure`);
-    await sleep(Math.min(until - Date.now(), COOLDOWN_MS));
-  }
+/** fetch for NEAR RPC with a small concurrency limit (bursts are what trip public rate limiters). */
+export async function limitedFetch(url: string, init: RequestInit): Promise<Response> {
   await acquire();
   try {
-    const res = await fetch(url, init);
-    if (res.status === 429 || res.status >= 500) cooling.set(host, Date.now() + COOLDOWN_MS);
-    else cooling.delete(host);
-    return res;
-  } catch (e) {
-    const aborted = init.signal?.aborted || (e instanceof DOMException && e.name === 'AbortError');
-    if (!aborted) cooling.set(host, Date.now() + COOLDOWN_MS);
-    throw e;
+    return await fetch(url, init);
   } finally {
     release();
   }
 }
 
-export const perde = new PerdeClient({ network: APP_CONFIG.networkId, contractId: APP_CONFIG.contractId, rpcUrls: APP_CONFIG.rpcUrls, fetch: resilientFetch });
-export const rpc = perde.rpc;
-export const oneClick = new OneClickClient();
-export const dao = new SputnikDao({
-  network: APP_CONFIG.networkId,
-  daoId: APP_CONFIG.daoId,
-  perdeContractId: APP_CONFIG.contractId,
-  rpcUrls: APP_CONFIG.rpcUrls,
-  fetch: resilientFetch,
+/**
+ * One RPC client for the whole tab, shared by the Perde client and the DAO
+ * client: reads go to the most forgiving endpoint first, broadcasts to the
+ * one without a request-time cap; an endpoint that fails rests for 30 s
+ * (calls stick to the one that answered); identical concurrent reads share a
+ * request and idempotent reads are reused for a moment (cleared by every
+ * transaction, so read-after-write polling always sees fresh data).
+ */
+export const rpc = new NearRpc({
+  urls: APP_CONFIG.rpcUrls,
+  // dRPC answers `gas_price` with HTTP 422 UNKNOWN_BLOCK about a third of the time (it pins a block its upstream
+  // lacks; measured 9 of 25 on 2026-11-14), so gas price — cached for 30 s — comes from FastNEAR.
+  methodUrls: { send_tx: APP_CONFIG.broadcastUrls, gas_price: APP_CONFIG.broadcastUrls },
+  fetch: limitedFetch,
+  cooldownMs: 30_000,
+  cache: true,
 });
+export const perde = new PerdeClient({ network: APP_CONFIG.networkId, contractId: APP_CONFIG.contractId, rpc });
+export const oneClick = new OneClickClient();
+export const dao = new SputnikDao({ network: APP_CONFIG.networkId, daoId: APP_CONFIG.daoId, perdeContractId: APP_CONFIG.contractId, rpc });
 
 /** NEAR's storage staking price (protocol constant `storage_amount_per_byte`). */
 export const STORAGE_BYTE_COST = 10n ** 19n;

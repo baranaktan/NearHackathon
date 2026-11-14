@@ -1,20 +1,28 @@
 /**
  * Inbox: incremental scan of announcements with the identity's view keys
- * (cursor cached in localStorage), plus invoice accounts (gap limit 20), live
- * balances, and claims signed in the browser with the stealth scalar.
+ * (cursor cached in localStorage), invoice accounts, live balances, claims
+ * and onward payments signed in the browser with the stealth scalar.
+ *
+ * RPC budget: one `announcement_count` + one page per 200 new announcements,
+ * one view per unclaimed payment, and one view per known invoice (plus the
+ * next index). The full gap-limit invoice discovery (20+ views) runs once per
+ * identity, or on "Rescan from the first announcement".
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { deriveInvoice, isImplicitAccountId, isValidAccountId, pollUntil, type Claimable, type ViewKeys } from '@perde/core';
+import { deriveInvoice, isImplicitAccountId, isValidAccountId, pollUntil, type Claimable, type InvoicePayment, type ViewKeys } from '@perde/core';
 import { useAppState } from '../../state/context';
 import { perde, rpc } from '../../lib/perde';
 import { errorText } from '../../lib/errors';
 import { formatYocto, truncateMiddle } from '../../lib/near-format';
+import { useSendLimits } from '../../lib/useSendLimits';
 import { useToast } from '../../ui/toast-context';
-import { fetchBalances, scanAnnouncementsFrom, scanInvoiceAccounts, type LiveAccount } from '../../flows/scan';
+import { checkKnownInvoices, fetchBalances, scanAnnouncementsFrom, scanInvoiceAccounts, type LiveAccount } from '../../flows/scan';
 import { mergeScan, scanStart } from '../../state/scan-cache';
 import { claimStealth } from '../../flows/claim';
 import { txHashOf } from '../../flows/tx';
-import type { ClaimEstimate, ClaimMode, ClaimState, FoundPayment, InboxModel, ScanState } from './types';
+import type { SentRecord } from '../../state/schema';
+import { spendState } from './onward';
+import type { ClaimEstimate, ClaimMode, ClaimState, FoundPayment, InboxModel, OnwardTerms, ScanState } from './types';
 
 const RECENT_MS = 3 * 60_000;
 
@@ -26,6 +34,7 @@ interface InvoiceHit {
 export function useInbox(): InboxModel {
   const { state, dispatch, identity, wallet, refreshBalance } = useAppState();
   const toast = useToast();
+  const { limits } = useSendLimits();
   const meta = identity?.metaAddress ?? null;
   const [scan, setScan] = useState<ScanState>({ status: 'idle' });
   const [live, setLive] = useState<Map<string, LiveAccount>>(new Map());
@@ -44,31 +53,45 @@ export function useInbox(): InboxModel {
       if (!identity || running.current) return;
       running.current = true;
       const metaAddress = identity.metaAddress;
-      const prior = fromStart ? null : latest.current.scan;
+      const now = latest.current;
+      const prior = fromStart ? null : now.scan;
       const from = fromStart ? 0 : scanStart(prior, metaAddress);
       setScan({ status: 'scanning', scanned: 0, total: null });
       try {
         const res = await scanAnnouncementsFrom(identity.viewKeys, from, (p) => setScan({ status: 'scanning', scanned: p.scanned, total: p.total }));
         const merged = mergeScan(prior, metaAddress, res.matches, res.nextIndex, Date.now());
-        dispatch({ type: 'scan/set', scan: merged });
-        const invoices = await scanInvoiceAccounts(identity.viewKeys);
+
+        // Invoices: full discovery once per identity (e.g. a phrase restored in a new browser), then only the known ones.
+        const discover = fromStart || !(prior?.metaAddress === metaAddress && prior.invoicesRecovered === true);
+        const goneAccounts = new Set(Object.values(now.claims).filter((c) => c.mode === 'deleteAccount').map((c) => c.stealthAccount));
+        let invoices: InvoicePayment[];
+        if (discover) {
+          invoices = await scanInvoiceAccounts(identity.viewKeys);
+          const known = new Set(now.invoices.map((i) => i.index));
+          const recovered = invoices.map((i) => i.index).filter((i) => !known.has(i));
+          if (recovered.length > 0) dispatch({ type: 'invoice/recover', indices: recovered });
+        } else {
+          invoices = await checkKnownInvoices(identity.viewKeys, now.nextInvoiceIndex, goneAccounts);
+        }
+        dispatch({ type: 'scan/set', scan: { ...merged, invoicesRecovered: true } });
         const hits = invoices.map((i) => ({ index: i.index, stealthAccount: i.stealthAccountId }));
         setInvoiceHits(hits);
-        const accounts = [...merged.payments.map((p) => p.stealthAccount), ...hits.map((h) => h.stealthAccount)];
-        const balances = await fetchBalances(accounts);
+
+        // Balances only for payments that may still hold something: claimed ones are shown from their claim record.
+        const open = merged.payments.filter((p) => !now.claims[p.stealthAccount]).map((p) => p.stealthAccount);
+        const balances = await fetchBalances(open);
+        for (const i of invoices) balances.set(i.stealthAccountId, { exists: true, balanceYocto: i.balance });
         // A payment made moments ago may not be visible yet on the node we hit: poll those briefly.
-        const lagging = merged.payments.filter(
-          (p) => !balances.get(p.stealthAccount)?.exists && !latest.current.claims[p.stealthAccount] && Date.now() - p.timestampMs < RECENT_MS,
-        );
+        const lagging = merged.payments.filter((p) => !balances.get(p.stealthAccount)?.exists && !now.claims[p.stealthAccount] && Date.now() - p.timestampMs < RECENT_MS);
         for (const p of lagging) {
           try {
-            const v = await pollUntil(() => rpc.viewAccountOrNull(p.stealthAccount), (x) => x !== null, { timeoutMs: 10_000, what: 'the new account' });
+            const v = await pollUntil(() => rpc.viewAccountOrNull(p.stealthAccount), (x) => x !== null, { timeoutMs: 10_000, intervalMs: 1000, what: 'the new account' });
             if (v) balances.set(p.stealthAccount, { exists: true, balanceYocto: v.amount });
           } catch {
             /* still not visible: shown as empty, a rescan will pick it up */
           }
         }
-        setLive(balances);
+        setLive((prev) => new Map([...prev, ...balances]));
         setScan({ status: 'done', scanned: res.scanned, finishedAtMs: Date.now() });
       } catch (e) {
         setScan({ status: 'error', message: errorText(e, 'scan') });
@@ -92,9 +115,18 @@ export function useInbox(): InboxModel {
       return inflight[stealth] ?? { status: 'unclaimed' };
     };
     const sentBy = new Map(state.sent.map((r) => [r.stealthAccount, r]));
+    const onwardFrom = new Map<string, SentRecord[]>();
+    for (const r of state.sent) {
+      if (r.kind !== 'onward') continue;
+      onwardFrom.set(r.senderId, [...(onwardFrom.get(r.senderId) ?? []), r]);
+    }
+    const withSpend = (p: Omit<FoundPayment, 'onward' | 'spend'>): FoundPayment => {
+      const onward = onwardFrom.get(p.stealthAccount) ?? [];
+      return { ...p, onward, spend: spendState({ onwardCount: onward.length, exists: p.exists, balanceYocto: p.balanceYocto === null ? null : BigInt(p.balanceYocto) }) };
+    };
     const ann: FoundPayment[] = (cache?.payments ?? []).map((p) => {
       const l = live.get(p.stealthAccount);
-      return {
+      return withSpend({
         id: `a${p.index}`,
         stealthAccount: p.stealthAccount,
         amountYocto: p.amountYocto,
@@ -108,7 +140,7 @@ export function useInbox(): InboxModel {
         claim: claimState(p.stealthAccount),
         claimRecord: state.claims[p.stealthAccount] ?? null,
         sentRecord: sentBy.get(p.stealthAccount) ?? null,
-      };
+      });
     });
     const localInvoices = new Map(state.invoices.map((i) => [i.index, i]));
     const invoiceIds = new Map<number, string>(invoiceHits.map((h) => [h.index, h.stealthAccount]));
@@ -124,13 +156,13 @@ export function useInbox(): InboxModel {
       const l = live.get(stealth);
       const rec = state.claims[stealth];
       const local = localInvoices.get(index);
-      return {
+      return withSpend({
         id: `i${index}`,
         stealthAccount: stealth,
         amountYocto: rec ? rec.amountYocto : (l?.balanceYocto ?? 0n).toString(),
         balanceYocto: l ? l.balanceYocto.toString() : rec ? '0' : null,
         exists: l ? l.exists : rec ? false : null,
-        timestampMs: local?.createdAtMs ?? null,
+        timestampMs: local?.createdAtMs || null,
         announcementIndex: null,
         invoiceIndex: index,
         note: local?.note ?? '',
@@ -138,9 +170,9 @@ export function useInbox(): InboxModel {
         claim: claimState(stealth),
         claimRecord: rec ?? null,
         sentRecord: sentBy.get(stealth) ?? null,
-      };
+      });
     });
-    return [...ann, ...inv].sort((a, b) => (b.timestampMs ?? 0) - (a.timestampMs ?? 0));
+    return [...ann, ...inv].sort((a, b) => (b.timestampMs ?? 0) - (a.timestampMs ?? 0) || (b.announcementIndex ?? -1) - (a.announcementIndex ?? -1));
   }, [cache, live, invoiceHits, state.claims, state.invoices, state.sent, inflight, identity]);
 
   const unclaimed = payments
@@ -149,6 +181,41 @@ export function useInbox(): InboxModel {
     .toString();
 
   const findPayment = useCallback((id: string) => payments.find((p) => p.id === id) ?? null, [payments]);
+
+  const claimTarget = useCallback(
+    (id: string): Claimable | null => {
+      const p = findPayment(id);
+      if (!p) return null;
+      if (p.invoiceIndex !== null) return { invoiceIndex: p.invoiceIndex };
+      const ann = cache?.payments.find((c) => c.stealthAccount === p.stealthAccount);
+      return ann ? { stealthAccountId: ann.stealthAccount, ephemeralPk: ann.ephemeralPk, viewTag: ann.viewTag } : null;
+    },
+    [findPayment, cache],
+  );
+
+  const refreshAccount = useCallback(async (stealthAccount: string, balanceBefore?: bigint): Promise<bigint | null> => {
+    const read = async () => (await fetchBalances([stealthAccount])).get(stealthAccount) ?? { exists: false, balanceYocto: 0n };
+    try {
+      // After a write the node may lag a block, and the gas refund lands a block after the payment: wait for both.
+      const changed = await pollUntil(read, (a) => balanceBefore === undefined || !a.exists || a.balanceYocto !== balanceBefore, {
+        timeoutMs: 10_000,
+        intervalMs: 1000,
+        what: 'the new balance',
+      });
+      let final = changed;
+      for (let i = 0; i < 6 && final.exists; i++) {
+        await new Promise((r) => setTimeout(r, 1200));
+        const next = await read().catch(() => final);
+        const stable = next.balanceYocto === final.balanceYocto;
+        final = next;
+        if (stable) break;
+      }
+      setLive((prev) => new Map([...prev, [stealthAccount, final]]));
+      return final.exists ? final.balanceYocto : 0n;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const estimateClaim = useCallback(
     async (id: string, destination: string, mode: ClaimMode): Promise<ClaimEstimate> => {
@@ -197,16 +264,17 @@ export function useInbox(): InboxModel {
       const p = findPayment(id);
       if (!p || !identity) return;
       const dest = destination.trim();
-      setInflight((m) => ({ ...m, [p.stealthAccount]: { status: 'claiming', destination: dest } }));
+      const startedAtMs = Date.now();
+      const setStep = (step: 'sign' | 'broadcast' | 'confirm') =>
+        setInflight((m) => ({ ...m, [p.stealthAccount]: { status: 'claiming', destination: dest, step, startedAtMs } }));
+      setStep('sign');
       try {
         // The account must be visible to the node that builds the transaction.
-        await pollUntil(() => rpc.viewAccountOrNull(p.stealthAccount), (v) => v !== null, { timeoutMs: 10_000, what: 'the stealth account' });
-        const ann = cache?.payments.find((c) => c.stealthAccount === p.stealthAccount);
-        let target: Claimable;
-        if (p.invoiceIndex !== null) target = { invoiceIndex: p.invoiceIndex };
-        else if (ann) target = { stealthAccountId: ann.stealthAccount, ephemeralPk: ann.ephemeralPk, viewTag: ann.viewTag };
-        else throw new Error('This payment is no longer in the scan cache. Rescan, then claim again.');
-        const res = await claimStealth(identity.keys, target, dest, mode);
+        await pollUntil(() => rpc.viewAccountOrNull(p.stealthAccount), (v) => v !== null, { timeoutMs: 10_000, intervalMs: 1000, what: 'the stealth account' });
+        const target = claimTarget(id);
+        if (!target) throw new Error('This payment is no longer in the scan cache. Rescan, then claim again.');
+        const res = await claimStealth(identity.keys, target, dest, mode, setStep);
+        setStep('confirm');
         const received = res.movedYocto;
         dispatch({
           type: 'claim/add',
@@ -223,7 +291,7 @@ export function useInbox(): InboxModel {
               const a = m.get(p.stealthAccount);
               return !!a && (!a.exists || a.balanceYocto < res.balanceBefore);
             },
-            { timeoutMs: 10_000, what: 'the claimed account' },
+            { timeoutMs: 10_000, intervalMs: 1000, what: 'the claimed account' },
           );
           setLive((prev) => new Map([...prev, ...after]));
         } catch {
@@ -235,7 +303,12 @@ export function useInbox(): InboxModel {
         setInflight((m) => ({ ...m, [p.stealthAccount]: { status: 'error', destination: dest, message } }));
       }
     },
-    [findPayment, identity, cache, dispatch, toast, wallet, refreshBalance],
+    [findPayment, identity, claimTarget, dispatch, toast, wallet, refreshBalance],
+  );
+
+  const onwardTerms: OnwardTerms | null = useMemo(
+    () => (limits ? { announceFeeYocto: limits.announceFeeYocto, minAmountYocto: limits.minAmountYocto, gasReserveYocto: limits.gasPerSendYocto } : null),
+    [limits],
   );
 
   return {
@@ -245,10 +318,14 @@ export function useInbox(): InboxModel {
     unclaimedYocto: unclaimed,
     destinationSuggestions: wallet ? [wallet.accountId] : [],
     cursor: cache?.nextIndex ?? 0,
+    selfMetaAddress: meta,
+    onwardTerms,
     rescan: () => void runScan(false),
     rescanFromStart: () => void runScan(true),
     estimateClaim,
     claim: (id, dest, mode) => void claim(id, dest, mode),
+    claimTarget,
+    refreshAccount,
   };
 }
 

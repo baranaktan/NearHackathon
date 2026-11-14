@@ -10,6 +10,13 @@ export interface SendActionsParams {
   readonly receiverId: string;
   readonly actions: readonly Action[];
   readonly waitUntil?: WaitUntil;
+  /**
+   * Called with the transaction hash right after signing, before the
+   * broadcast. Keep it: if the response is lost, the outcome can be recovered
+   * with `NearRpc.waitForTransaction(hash, signerId)`. Called again with the
+   * new hash if an InvalidNonce retry re-signs.
+   */
+  readonly onTxHash?: (hash: string) => void;
 }
 
 function isInvalidNonce(e: unknown): boolean {
@@ -22,7 +29,7 @@ function isInvalidNonce(e: unknown): boolean {
 }
 
 /** Fetch nonce + recent block hash, then build and sign (does not broadcast). */
-export async function buildSignedTransaction(params: Omit<SendActionsParams, 'waitUntil'>): Promise<SignedTransaction> {
+export async function buildSignedTransaction(params: Omit<SendActionsParams, 'waitUntil' | 'onTxHash'>): Promise<SignedTransaction> {
   const { rpc, signer, signerId, receiverId, actions } = params;
   const [accessKey, blockHash] = await Promise.all([rpc.getAccessKey(signerId, signer.publicKey), rpc.latestBlockHash('final')]);
   return signTransaction({ signerId, publicKey: signer.publicKey, nonce: accessKey.nonce + 1n, receiverId, blockHash, actions }, signer);
@@ -36,6 +43,7 @@ export async function sendActions(params: SendActionsParams): Promise<TxOutcome>
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     const stx = await buildSignedTransaction(params);
+    params.onTxHash?.(stx.hash);
     try {
       return await params.rpc.sendTransaction(stx, params.waitUntil ?? 'EXECUTED_OPTIMISTIC');
     } catch (e) {

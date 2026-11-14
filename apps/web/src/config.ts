@@ -11,12 +11,20 @@ export const APP_CONFIG = {
   /** Open demo SputnikDAO (deployments/testnet.json → dao.daoId). Anyone may propose and approve `call` proposals. */
   daoId: 'perde-demo.sputnikv2.testnet',
   /**
-   * Tried in order; transport errors, 429 and 5xx fail over to the next one.
-   * FastNEAR (core's default) first, dRPC's public testnet endpoint second (both
-   * CORS-enabled). Core's other default, rpc.testnet.near.org, is left out: it is
-   * deprecated and answers 429 to every request (checked 2026-11-14).
+   * Endpoints for reads, in failover order (an endpoint that fails rests for
+   * 30 s; see `lib/perde.ts`). Measured 2026-11-14 from a browser origin:
+   * dRPC's public endpoint took 400 requests at 10 concurrent without a 429
+   * and sends CORS headers on every answer, errors included; FastNEAR is as
+   * fast but answers 429 after a burst of ~200 requests, without CORS headers,
+   * which the browser reports as a console error it cannot suppress.
    */
-  rpcUrls: [NETWORKS.testnet.rpcUrls[0] ?? 'https://test.rpc.fastnear.com', 'https://near-testnet.drpc.org'] as readonly string[],
+  rpcUrls: ['https://near-testnet.drpc.org', 'https://test.rpc.fastnear.com'] as readonly string[],
+  /**
+   * Endpoints for `send_tx`, which waits for execution server-side: dRPC's
+   * free tier ends any request after ~2 s with HTTP 408, so FastNEAR (no such
+   * cap, ~1 s for a payment) broadcasts first.
+   */
+  broadcastUrls: ['https://test.rpc.fastnear.com', 'https://near-testnet.drpc.org'] as readonly string[],
   explorerUrl: NETWORKS.testnet.explorerUrl,
   githubUrl: 'https://github.com/baranaktan/NearHackathon' as string,
   license: 'Apache-2.0',

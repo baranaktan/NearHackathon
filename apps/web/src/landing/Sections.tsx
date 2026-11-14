@@ -222,7 +222,10 @@ const hidden = [
 const visible = [
   { title: 'Sender, amount and time', body: 'The paying account, the exact amount and the block are public, as with any NEAR transfer.' },
   { title: 'That Perde was used', body: 'The contract call and its announcement are visible. Anyone can count Perde payments; nobody can attribute them.' },
-  { title: 'Where claimed funds go', body: 'Claiming to alice.near links the two accounts. Claim to a fresh account, or spend in place, to keep the curtain closed.' },
+  {
+    title: 'Where claimed funds go',
+    body: 'Claiming to alice.near links the two accounts. Claim to a fresh account, or pay onward straight from the stealth account without ever claiming, to keep the curtain closed.',
+  },
 ];
 
 export function PrivacyHonest() {
