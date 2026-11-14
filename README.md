@@ -168,7 +168,7 @@ npm run test:testnet    # live NEAR testnet integration tests
 
 The browser suite also runs axe accessibility scans on every route and exercises failure paths (RPC down, slow network, 1Click errors, faucet rate limit). Results, Lighthouse scores, the dependency audit and the secret scan are in [`docs/QA_REPORT.md`](docs/QA_REPORT.md).
 
-The site is static: `npm run build` writes `apps/web/dist/`, and [`vercel.json`](vercel.json) holds the hosting configuration.
+The site is static: `npm run build` writes `apps/web/dist/`, and [`vercel.json`](vercel.json) holds the hosting configuration (a second copy in `apps/web/` covers projects whose root directory is `apps/web`).
 
 ## Built with
 
