@@ -12,7 +12,7 @@ Every payment lands in a fresh account that only the recipient can find and spen
 [![License](https://img.shields.io/badge/license-Apache--2.0-informational?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-unaudited%20prototype-lightgrey?style=flat-square)](#limitations)
 
-[Live demo](https://perde-live.vercel.app) · [Video](demo/demo.mp4) · [Protocol & threat model](docs/PROTOCOL.md) · [QA report](docs/QA_REPORT.md)
+[Live demo](https://perde-live.vercel.app) · [Demo post on X](https://x.com/Perdedev/status/2121671869510414521) · [Video](demo/demo.mp4) · [Protocol & threat model](docs/PROTOCOL.md) · [QA report](docs/QA_REPORT.md)
 
 <br>
 
