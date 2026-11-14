@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Perde — private payments on NEAR</title>
+    <meta
+      name="description"
+      content="Pay anyone on NEAR without revealing who was paid. Every payment lands in a fresh account only the recipient can find and spend. No pool, no relayer, no indexer."
+    />
+    <meta name="theme-color" content="#0e0b0a" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4eee3" media="(prefers-color-scheme: light)" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Perde — private payments on NEAR" />
+    <meta
+      property="og:description"
+      content="One meta-address. Every payment lands in a brand-new NEAR account only you can find and spend."
+    />
+    <meta property="og:image" content="./og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Perde — private payments on NEAR" />
+    <meta name="twitter:image" content="./og.png" />
+
+    <script>
+      // Resolve the theme before first paint so there is no flash.
+      (function () {
+        var theme = 'dark';
+        try {
+          var stored = localStorage.getItem('perde-theme');
+          if (stored === 'light' || stored === 'dark') theme = stored;
+          else if (window.matchMedia('(prefers-color-scheme: light)').matches) theme = 'light';
+        } catch (e) {}
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>Perde needs JavaScript: keys are generated and used only inside your browser.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

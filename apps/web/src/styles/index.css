@@ -1,0 +1,372 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* ------------------------------------------------------------------------ */
+/* Design tokens                                                             */
+/* Dark is the default stage; light is a printed-programme paper.           */
+/* Every text token is checked for WCAG AA on bg / surface / surface-2.     */
+/* ------------------------------------------------------------------------ */
+
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0e0b0a;
+  --surface: #161210;
+  --surface-2: #1e1916;
+  --surface-3: #28211d;
+  --line: #2e2622;
+  --line-strong: #43382f;
+
+  --fg: #f3ede2;
+  --fg-muted: #bdb2a3;
+  --fg-faint: #958a7b;
+
+  --accent: #b3122d; /* fills (buttons, active marks) */
+  --accent-hover: #c8102e;
+  --on-accent: #fbf6ee;
+  --accent-text: #ef5a6c; /* crimson as text/icon on the dark stage */
+
+  --brass: #c4a46a;
+  --brass-text: #d3b77f;
+
+  --success: #8cc59f;
+  --warn: #e2b04a;
+  --danger: #f2785c;
+
+  --velvet-deep: #1f0207;
+  --velvet-shadow: #43050f;
+  --velvet-mid: #7a0b1d;
+  --velvet-light: #ac142d;
+  --velvet-sheen: #cf3448;
+
+  --shadow-lift: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 24px 48px -24px rgb(0 0 0 / 0.7);
+  --grain-opacity: 0.05;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4eee3;
+  --surface: #fbf8f2;
+  --surface-2: #efe7da;
+  --surface-3: #e6dccb;
+  --line: #ddd2c1;
+  --line-strong: #c4b59f;
+
+  --fg: #1b1512;
+  --fg-muted: #51463e;
+  --fg-faint: #6a5e53;
+
+  --accent: #a50d28;
+  --accent-hover: #8a0a20;
+  --on-accent: #fbf6ee;
+  --accent-text: #a50d28;
+
+  --brass: #8a6a33;
+  --brass-text: #6f5223;
+
+  --success: #2d6a45;
+  --warn: #855700;
+  --danger: #a5331a;
+
+  --velvet-deep: #2a0309;
+  --velvet-shadow: #52070f;
+  --velvet-mid: #860c20;
+  --velvet-light: #b3172f;
+  --velvet-sheen: #d63c4f;
+
+  --shadow-lift: 0 1px 0 rgb(255 255 255 / 0.6) inset, 0 24px 48px -28px rgb(60 30 10 / 0.35);
+  --grain-opacity: 0.035;
+}
+
+/* No-JS fallback: respect the OS preference. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --bg: #f4eee3;
+    --surface: #fbf8f2;
+    --surface-2: #efe7da;
+    --fg: #1b1512;
+    --fg-muted: #51463e;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
+  --color-accent-text: var(--accent-text);
+  --color-brass: var(--brass);
+  --color-brass-text: var(--brass-text);
+  --color-success: var(--success);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-velvet-deep: var(--velvet-deep);
+  --color-velvet-shadow: var(--velvet-shadow);
+  --color-velvet-mid: var(--velvet-mid);
+  --color-velvet-light: var(--velvet-light);
+
+  --font-display: 'Instrument Serif', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  --shadow-lift: var(--shadow-lift);
+
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-spin-slow: spin 0.9s linear infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Base                                                                      */
+/* ------------------------------------------------------------------------ */
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-feature-settings: 'ss01', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+  ::selection {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--brass);
+    outline-offset: 2px;
+  }
+  button,
+  [role='button'],
+  summary {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Signature: velvet                                                         */
+/* Pleats are a percentage-based repeating gradient: when a panel narrows   */
+/* (gathers), its folds compress, just like real fabric.                    */
+/* ------------------------------------------------------------------------ */
+
+@layer components {
+  .velvet {
+    background-color: var(--velvet-mid);
+    background-image:
+      linear-gradient(180deg, rgb(0 0 0 / 0.5) 0%, rgb(0 0 0 / 0) 22%, rgb(0 0 0 / 0) 68%, rgb(0 0 0 / 0.55) 100%),
+      repeating-linear-gradient(
+        90deg,
+        rgb(0 0 0 / 0) 0%,
+        rgb(0 0 0 / 0.22) 3%,
+        rgb(0 0 0 / 0) 6.5%,
+        rgb(255 255 255 / 0.03) 8%,
+        rgb(0 0 0 / 0) 11%
+      ),
+      repeating-linear-gradient(
+        90deg,
+        var(--velvet-deep) 0%,
+        var(--velvet-shadow) 3%,
+        var(--velvet-mid) 7.5%,
+        var(--velvet-light) 11%,
+        var(--velvet-sheen) 12.2%,
+        var(--velvet-light) 13.4%,
+        var(--velvet-mid) 16%,
+        var(--velvet-deep) 20%
+      );
+    /* fixed pleat width: ~36px folds; panels "gather" via scaleX */
+    background-size:
+      100% 100%,
+      130px 100%,
+      180px 100%;
+  }
+
+  /* Fine pleats for small surfaces (chips, thumbnails). */
+  .velvet-fine {
+    background-color: var(--velvet-mid);
+    background-image:
+      linear-gradient(180deg, rgb(0 0 0 / 0.35), rgb(0 0 0 / 0) 40%, rgb(0 0 0 / 0.45)),
+      repeating-linear-gradient(
+        90deg,
+        var(--velvet-deep) 0,
+        var(--velvet-mid) 5px,
+        var(--velvet-light) 8px,
+        var(--velvet-mid) 11px,
+        var(--velvet-deep) 16px
+      );
+  }
+
+  /* A brass hairline rule. */
+  .hairline {
+    background: linear-gradient(90deg, transparent, var(--brass) 12%, var(--brass) 88%, transparent);
+    height: 1px;
+    opacity: 0.55;
+  }
+
+  /* Paper/film grain over large stages. Static image, rendered once. */
+  .grain {
+    position: relative;
+    isolation: isolate;
+  }
+  .grain::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: var(--grain-opacity);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--surface-2) 0%,
+      var(--surface-3) 50%,
+      var(--surface-2) 100%
+    );
+    background-size: 200% 100%;
+    animation: var(--animate-shimmer);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton {
+      animation: none;
+    }
+  }
+
+  /* Native <dialog> transitions (Dialog / Sheet). */
+  dialog.perde-dialog {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+    transition:
+      opacity 180ms ease,
+      transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      overlay 220ms allow-discrete,
+      display 220ms allow-discrete;
+  }
+  dialog.perde-dialog[open] {
+    opacity: 1;
+    transform: none;
+  }
+  @starting-style {
+    dialog.perde-dialog[open] {
+      opacity: 0;
+      transform: translateY(12px) scale(0.985);
+    }
+  }
+  dialog.perde-sheet {
+    --sheet-from: translateX(24px);
+    transform: var(--sheet-from);
+  }
+  dialog.perde-sheet[data-side='bottom'] {
+    --sheet-from: translateY(32px);
+  }
+  @media (max-width: 1023.98px) {
+    dialog.perde-sheet[data-side='auto'] {
+      --sheet-from: translateY(32px);
+    }
+  }
+  dialog.perde-sheet[open] {
+    transform: none;
+  }
+  @starting-style {
+    dialog.perde-sheet[open] {
+      transform: var(--sheet-from);
+    }
+  }
+  dialog.perde-dialog::backdrop {
+    background: rgb(8 5 4 / 0);
+    backdrop-filter: blur(0);
+    transition:
+      background 220ms ease,
+      overlay 220ms allow-discrete,
+      display 220ms allow-discrete;
+  }
+  dialog.perde-dialog[open]::backdrop {
+    background: rgb(8 5 4 / 0.62);
+    backdrop-filter: blur(2px);
+  }
+  @starting-style {
+    dialog.perde-dialog[open]::backdrop {
+      background: rgb(8 5 4 / 0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    dialog.perde-dialog,
+    dialog.perde-dialog::backdrop {
+      transition: none;
+    }
+  }
+}
+
+@layer utilities {
+  .text-display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.012em;
+    line-height: 0.98;
+  }
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum', 'zero';
+  }
+  .break-hex {
+    overflow-wrap: anywhere;
+    word-break: break-all;
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+}
