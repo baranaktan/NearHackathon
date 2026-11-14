@@ -17,3 +17,4 @@ submission-payload.json
 .tools/
 .vercel/
 *.tsbuildinfo
+.cache/

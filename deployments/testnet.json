@@ -3,5 +3,38 @@
   "contractId": "perde-pay.testnet",
   "deployTx": "2nnVFxqQKCWyzdTbNyTizjfiX7k4S4TWUGpK9VYW8L9S",
   "deployedAt": "2026-11-14T00:18:58.413Z",
-  "wasmSha256": "6f9b7ebb58a4c40b21682118682df28653e312162c261a8358ce122a514b345d"
+  "wasmSha256": "6f9b7ebb58a4c40b21682118682df28653e312162c261a8358ce122a514b345d",
+  "dao": {
+    "daoId": "perde-demo.sputnikv2.testnet",
+    "factory": "sputnikv2.testnet",
+    "factoryDefaultCodeHash": "AA4nA45vauiac3jdVwJTzSdUP3oj2r1fDaPAb2mHdgcH",
+    "factoryDefaultVersion": [
+      3,
+      31
+    ],
+    "codeHash": "AA4nA45vauiac3jdVwJTzSdUP3oj2r1fDaPAb2mHdgcH",
+    "contractVersion": "2.3.1",
+    "creator": "perde-pay.testnet",
+    "createdTx": "GVPKKRa86AYGYBXwgcLb6JScGDFyVuLHhX1a8tCMwNjo",
+    "createdAt": "2026-11-14T00:36:44.341Z",
+    "createDeposit": "5750000000000000000000000",
+    "proposalBond": "10000000000000000000000",
+    "proposalPeriodNs": "3600000000000",
+    "policy": "open demo: role \"all\" (Everyone) may add call proposals; role \"open-voters\" (Member>=0, quorum 1) may VoteApprove/VoteReject/Finalize call proposals, so one approve vote executes; role \"council\" (creator) has *:*",
+    "storageBytes": 540556,
+    "fundingTxs": [
+      {
+        "tx": "FdTdrduecdkvqghAaFdqeoK3fNdtTMe2srB2KPXFPNiv",
+        "from": "perde-7b5b3e7865e9.testnet",
+        "amount": "2655560000000000000000000",
+        "at": "2026-11-14T00:36:52.649Z"
+      },
+      {
+        "tx": "7A43yi72QAm1kSvvqKmnohVfJkKq27Q19b8pKCtsP1Zp",
+        "from": "perde-7b5b3e7865e9.testnet",
+        "amount": "195330000000000000000000",
+        "at": "2026-11-14T00:44:34.591Z"
+      }
+    ]
+  }
 }

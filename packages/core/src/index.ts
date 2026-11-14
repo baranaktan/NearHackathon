@@ -90,6 +90,7 @@ export {
   NearRpc,
   RpcError,
   parseOutcome,
+  isCompleteOutcome,
   parseProtocolFeeConfig,
   type FetchFn,
   type Finality,
@@ -108,6 +109,7 @@ export {
   type ProtocolConfigRaw,
 } from './near/rpc.js';
 export { sendActions, buildSignedTransaction, type SendActionsParams } from './near/send.js';
+export { pollUntil, isReadLagError, type PollOptions } from './near/poll.js';
 
 export { estimateClaimFee, FALLBACK_FEE_CONFIG, type ClaimMode, type ClaimFeeInput, type ClaimFeeEstimate } from './perde/fees.js';
 export {
@@ -127,6 +129,57 @@ export {
   type ClaimOptions,
   type ClaimResult,
 } from './perde/client.js';
+
+export {
+  SputnikDao,
+  actProposalGas,
+  type SputnikDaoOptions,
+  type DaoBalance,
+  type AddProposalResult,
+  type StealthPaymentRequest,
+  type StealthPaymentProposal,
+  type VoteChoice,
+  type VoteOptions,
+  type VoteResult,
+  type CreateDaoParams,
+  type CreateDaoResult,
+} from './dao/sputnik.js';
+export {
+  SPUTNIK_FACTORY,
+  DEFAULT_PAYMENT_DESCRIPTION,
+  DAO_SEND_GAS,
+  DAO_BATCH_SEND_GAS,
+  MAX_PROPOSAL_ACTION_GAS,
+  buildStealthPaymentProposal,
+  describeProposal,
+  proposalKindLabel,
+  openDemoPolicy,
+  encodeDaoCreateArgs,
+  type StealthPaymentLeg,
+  type BuildStealthPaymentParams,
+  type DecodedStealthPayment,
+  type PerdePaymentSummary,
+  type OtherProposalSummary,
+  type ProposalSummary,
+  type DescribeOptions,
+  type OpenDemoPolicyParams,
+} from './dao/proposals.js';
+export type {
+  SputnikRoleKind,
+  SputnikWeightOrRatio,
+  SputnikVotePolicy,
+  SputnikRole,
+  SputnikPolicy,
+  SputnikConfig,
+  SputnikActionCall,
+  SputnikFunctionCallKind,
+  SputnikProposalKind,
+  SputnikProposalStatus,
+  SputnikVote,
+  SputnikAction,
+  SputnikProposalInput,
+  SputnikProposal,
+} from './dao/types.js';
 
 export {
   createFaucetAccount,

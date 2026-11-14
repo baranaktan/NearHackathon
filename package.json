@@ -17,6 +17,9 @@
     "typecheck": "npm --prefix packages/core run typecheck && npm --prefix apps/web run typecheck",
     "test": "npm --prefix packages/core test && npm --prefix apps/web test",
     "test:contract": "cargo test --manifest-path contracts/perde/Cargo.toml",
-    "test:testnet": "npm --prefix packages/core run test:testnet"
+    "test:testnet": "npm --prefix packages/core run test:testnet",
+    "demo:testnet": "node scripts/demo/demo-testnet.mjs",
+    "dao:setup": "node scripts/dao/setup.mjs",
+    "dao:fund": "node scripts/dao/fund.mjs"
   }
 }

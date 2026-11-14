@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createFaucetAccount, NearRpc, NETWORKS, SeedSigner, YOCTO_PER_NEAR } from '../src/index.js';
+import { createFaucetAccount, NearRpc, NETWORKS, pollUntil, SeedSigner, YOCTO_PER_NEAR } from '../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // node_modules/.cache is git-ignored and disposable; the faucet allows only ~10 accounts per 12 h per IP.
@@ -45,12 +45,7 @@ export async function getFunder(rpc: NearRpc, minNear = 3n): Promise<Funder> {
   return { accountId: acc.accountId, signer: SeedSigner.fromSecretKey(acc.secretKey), createdNow: true, faucetMs, faucetBalance: acc.balance, rateLimit: acc.rateLimit, txHash: acc.txHash };
 }
 
-export async function waitFor<T>(fn: () => Promise<T>, ok: (v: T) => boolean, timeoutMs = 30_000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const v = await fn();
-    if (ok(v)) return v;
-    if (Date.now() - start > timeoutMs) throw new Error('waitFor timed out');
-    await new Promise((r) => setTimeout(r, 1000));
-  }
+/** Bounded read-after-write polling (retries reads that hit an RPC node lagging behind our last transaction). */
+export function waitFor<T>(fn: () => Promise<T>, ok: (v: T) => boolean, timeoutMs = 30_000): Promise<T> {
+  return pollUntil(fn, ok, { timeoutMs, intervalMs: 1000 });
 }

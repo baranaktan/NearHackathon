@@ -78,6 +78,28 @@ Also: `getConfig`, `announcementCount`, `getMetaAddress`, `unregister`, `resolve
 - `mode: 'deleteAccount'` sends the whole balance to an existing beneficiary. It used 0.00028 NEAR in total in our run (0.000051 NEAR burnt, plus the gas refund, which is lost because the account is gone) and leaves nothing behind.
 - Sweeping to a *new* implicit account adds the creation costs (7.7 Tgas plus the 0.007 NEAR account-creation charge) to the reserve. Prefer existing destinations.
 
+## Private payments from a DAO treasury (SputnikDAO v2)
+
+A DAO pays a contributor through a normal SputnikDAO `FunctionCall` proposal that calls `perde.send(...)`. Everyone sees that the treasury paid a fresh implicit account; nobody can tell who it belongs to. No multisig of our own: this works with any existing Sputnik DAO whose policy lets members approve `call` proposals.
+
+```ts
+import { SputnikDao, describeProposal } from '@perde/core';
+
+const dao = new SputnikDao({ network: 'testnet', daoId: 'perde-demo.sputnikv2.testnet', perdeContractId: 'perde-pay.testnet' });
+const p = await dao.proposeStealthPayment(signer, 'alice.testnet', { recipient: 'perde:…' /* or a registered name */, amountYocto: 5n * 10n ** 22n });
+// p.proposalId, p.txHash, p.stealthAccountId, p.receipt (keep private), p.bondYocto
+const v = await dao.vote(signer2, 'carol.testnet', p.proposalId, 'approve'); // executes when the vote reaches the threshold
+// v.status === 'Approved', v.executed === true; the recipient finds it with perde.scan(viewingKey)
+```
+
+- Also: `getPolicy`, `getConfig`, `getVersion`, `getBalance` (`{total, storageLocked, available}`), `getLastProposalId` (= number of proposals), `getProposal(id)`, `getProposals(from, limit)`, `addProposal`, `finalize`, `describe(p)`, static `SputnikDao.create(...)`.
+- Pure helpers: `buildStealthPaymentProposal({contractId, announceFee, payments, description?})` (one `send` action per payment, deposit = amount + announce fee, 30 Tgas for one payment / 15 Tgas each for several), `describeProposal(p, {contractId?, announceFee?})` (recognises Perde payments and extracts stealth accounts and amounts; never throws), `openDemoPolicy(...)`, `encodeDaoCreateArgs(config, policy)`, `actProposalGas(kind)`.
+- Privacy guard: `proposeStealthPayment` refuses a description that contains the recipient's name or meta-address. The default description says nothing about the recipient.
+- Interface of the version the testnet factory `sputnikv2.testnet` deploys (`version()` 2.3.1, code `AA4nA45vauiac3jdVwJTzSdUP3oj2r1fDaPAb2mHdgcH`): `add_proposal({proposal: {description, kind: {FunctionCall: {receiver_id, actions: [{method_name, args: base64(JSON), deposit, gas}]}}}})` with **exactly** `policy.proposal_bond` attached (`ERR_MIN_BOND` otherwise), returns the id; `act_proposal({id, action: "VoteApprove" | "VoteReject" | "VoteRemove" | "Finalize", memo?})`. Upstream `main` also requires `proposal: <kind>` (and rejects unknown arguments); the client always sends the current kind, which the testnet version ignores.
+- `act_proposal` executes the proposal inside the vote transaction, so the voter attaches the proposal's action gas + 10 Tgas callback + 40 Tgas (80 Tgas for one payment). Prepaid gas is reserved at 1e9 yocto/gas on testnet, so the voter needs ≈ 0.08 NEAR of headroom. The vote transaction succeeds even if the inner call fails; `VoteResult.executed` / `status` (`Approved` vs `Failed`) tell the difference.
+- Read-after-write: testnet RPC endpoints are load-balanced and a node can lag the block that holds your transaction (a view right after `add_proposal` may panic with `ERR_NO_PROPOSAL`). `addProposal` and `vote` poll (bounded, 20 s) until the proposal reflects the write; use `waitForProposal(id, ok?)` and the exported `pollUntil(fn, ok, {timeoutMs})` / `isReadLagError` for your own reads. `NearRpc` turns nearcore's legacy `result: {error: "..."}` query responses into `RpcError` (`CONTRACT_EXECUTION_ERROR`, `UNKNOWN_ACCESS_KEY`) and rejects incomplete transaction outcomes with `PerdeError("RPC_ERROR")` after polling `tx`.
+- Sputnik does not count votes from `Everyone` roles when it decides a proposal (they have no size). `openDemoPolicy` therefore gives the public a `Member("0")` role with quorum 1 (one approve vote passes), limited to `call` proposals; the creator keeps a `council` role with `*:*`.
+
 ## Faucet (testnet)
 
 `createFaucetAccount({accountId?, signer?})` → `{accountId, secretKey, publicKey, txHash, balance, rateLimit}`. It POSTs to `https://helper.nearprotocol.com/account` and waits until the account is visible over RPC. Observed: 10 NEAR, ≈3.5 s, limit 10 accounts per ~12 h window per client IP (`x-ratelimit-*` headers). A 429 response becomes `FAUCET_ERROR` with the reset time. Transport errors and 5xx responses are retried.

@@ -94,8 +94,8 @@ describe('testnet: a scalar-derived key controls an implicit account', () => {
     const claim1 = await client.claim(alice, stealth, funder.accountId);
     expect(claim1.outcome.success).toBe(true);
     tx('claim (Transfer balance − reserve, signed with the stealth scalar)', claim1.txHash);
-    await settle();
-    const dust = await rpc.getBalance(stealth.stealthAccountId);
+    // the gas refund arrives in a later receipt; poll (bounded) until the balance reflects it
+    const dust = await waitFor(() => rpc.getBalance(stealth.stealthAccountId), (b) => b === claim1.fee.reserve - claim1.tokensBurnt);
     note(`- claim moved ${near(claim1.amountYocto)}; reserve kept ${near(claim1.fee.reserve)} (gas ${claim1.fee.gas}, reserve price ${claim1.fee.reservePrice} yocto/gas); tokens burnt ${near(claim1.tokensBurnt)}; dust left after refund ${near(dust)}`);
     expect(dust).toBe(claim1.fee.reserve - claim1.tokensBurnt);
 
@@ -107,7 +107,7 @@ describe('testnet: a scalar-derived key controls an implicit account', () => {
     const fundInv = await sendActions({ rpc, signer: funder.signer, signerId: funder.accountId, receiverId: invoice.stealthAccountId, actions: [transfer(parseNear('0.2'))] });
     tx('pay invoice #0 (plain Transfer)', fundInv.hash);
     await waitFor(() => rpc.getBalance(invoice.stealthAccountId), (b) => b > 0n);
-    const invoices = await client.scanInvoices(encodeViewingKey(alice), { gapLimit: 5 });
+    const invoices = await waitFor(() => client.scanInvoices(encodeViewingKey(alice), { gapLimit: 5 }), (l) => l.some((i) => i.index === 0 && i.balance === parseNear('0.2')));
     expect(invoices.map((i) => i.index)).toEqual([0]);
     expect(invoices[0]?.balance).toBe(parseNear('0.2'));
     note(`- scanInvoices(viewing key, gapLimit 5) found invoice #0 with ${near(invoices[0]?.balance ?? 0n)}`);
@@ -154,17 +154,17 @@ describe('testnet: a scalar-derived key controls an implicit account', () => {
       ]);
       tx('sendBatch: 2 send actions in ONE transaction', batch.txHash);
 
-      await settle();
-      const page = await perde.fetchAnnouncements({ fromIndex: startIndex });
+      const page = await waitFor(() => perde.fetchAnnouncements({ fromIndex: startIndex }), (p) => p.announcements.length >= 3);
       expect(page.announcements.length).toBeGreaterThanOrEqual(3);
-      const scanBob = await perde.scan(encodeViewingKey(bob), { fromIndex: startIndex });
-      const scanCarol = await perde.scan(carol, { fromIndex: startIndex });
+      const funded = (s: Awaited<ReturnType<typeof perde.scan>>, n: number) => s.payments.length === n && s.payments.every((x) => x.balance === x.amount);
+      const scanBob = await waitFor(() => perde.scan(encodeViewingKey(bob), { fromIndex: startIndex }), (s) => funded(s, 2));
+      const scanCarol = await waitFor(() => perde.scan(carol, { fromIndex: startIndex }), (s) => funded(s, 1));
       expect(scanBob.payments.map((x) => x.stealthAccountId).sort()).toEqual([sent.stealthAccountId, batch.items[0]?.stealthAccountId].sort());
       expect(scanCarol.payments.map((x) => x.stealthAccountId)).toEqual([batch.items[1]?.stealthAccountId]);
       for (const pay of [...scanBob.payments, ...scanCarol.payments]) expect(pay.balance).toBe(pay.amount);
       note(`- fetchAnnouncements(from ${startIndex}) returned ${page.announcements.length}; scan(bob's viewing key) found ${scanBob.payments.length}, scan(carol) found ${scanCarol.payments.length}; live balances equal announced amounts`);
 
-      const onChainReceipt = await perde.verifyReceipt(sent.receipt);
+      const onChainReceipt = await waitFor(() => perde.verifyReceipt(sent.receipt), (r) => r.announced);
       expect(onChainReceipt.valid && onChainReceipt.announced).toBe(true);
       note(`- receipt verified against the on-chain announcement #${onChainReceipt.announcement?.index}`);
 

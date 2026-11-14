@@ -10,8 +10,20 @@ Alt ajan brief başlığı: `docs/research/_BRIEF_HEADER.md` (güvenlik kurallar
 - FAZ 0: `docs/HACKATHON_NOTES.md`, `docs/research/01..04`
 - FAZ 2: `DECISIONS.md`, `PLAN.md`, `.gitignore`, git init
 
+- T1 core (`packages/core`, 50 unit test + canlı testnet testi geçiyor) — commit a953a38
+- T2 kontrat canlı: `perde-pay.testnet` (36 Rust testi; düz cargo + wasm-opt ile build, cargo-near bu makinede çalışmadı)
+
+## Önemli kısıtlar
+- Testnet faucet: IP başına ~12 saatte 10 hesap; ~5 kaldı. Testler önbellekteki hesabı kullanır; web demo modu tek faucet hesabıyla çalışmalı, E2E/video için hazır hesap enjekte edilmeli.
+- 1Click teslim varlığı `nep141:wrap.near`; yerel NEAR mı wNEAR mı geldiği gerçek mainnet swap olmadan doğrulanamadı → arayüzde ve README'de açıkça belirtilecek.
+- Claim: transfer modunda ~0.00067 NEAR rezerv kalır; DeleteAccount modu toz bırakmaz.
+
+- T3 web kabuğu + tasarım sistemi (apps/web; lint/typecheck/16 test/build yeşil) — commit d21ce91
+
 ## Devam eden
-- M1: T1 core, T2 kontrat, T3 web kabuğu (paralel ajanlar)
+- T4: akışların arayüze bağlanması (apps/web; fixtures silinecek, `#/pay` rotası, guided demo)
+- T5+T10: DAO ödeme akışı (SputnikDAO, `packages/core/src/dao`, `scripts/dao`) + `npm run demo:testnet` (`scripts/demo`)
+- Sonra: DAO sayfası (web), cüzdan bağlama (T9, opsiyonel), FAZ 4
 
 ## Sıradaki
 - M2: T4 web akışları, T5 demo script

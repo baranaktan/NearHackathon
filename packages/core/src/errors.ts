@@ -18,7 +18,8 @@ export type PerdeErrorCode =
   | 'DESTINATION_NOT_FOUND'
   | 'RECIPIENT_NOT_REGISTERED'
   | 'FAUCET_ERROR'
-  | 'ONECLICK_ERROR';
+  | 'ONECLICK_ERROR'
+  | 'DAO_ERROR';
 
 export class PerdeError extends Error {
   readonly code: PerdeErrorCode;

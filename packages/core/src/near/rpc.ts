@@ -120,7 +120,30 @@ function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
 }
 
+/**
+ * True when a `send_tx` / `tx` result carries a full execution outcome.
+ * Nodes answer with only `{final_execution_status: "NONE" | "INCLUDED"}` when
+ * the transaction has not executed yet.
+ */
+export function isCompleteOutcome(raw: unknown): raw is FinalExecutionOutcomeRaw {
+  if (!isRecord(raw)) return false;
+  const tx = raw.transaction;
+  const txo = raw.transaction_outcome;
+  return (
+    isRecord(tx) &&
+    typeof tx.hash === 'string' &&
+    isRecord(txo) &&
+    isRecord(txo.outcome) &&
+    Array.isArray(raw.receipts_outcome) &&
+    raw.receipts_outcome.every((r) => isRecord(r) && isRecord(r.outcome)) &&
+    raw.status !== undefined
+  );
+}
+
 export function parseOutcome(raw: FinalExecutionOutcomeRaw): TxOutcome {
+  if (!isCompleteOutcome(raw)) {
+    throw new PerdeError('RPC_ERROR', `incomplete transaction outcome from RPC: ${describeFailure(raw).slice(0, 300)}`, raw);
+  }
   const all = [raw.transaction_outcome, ...raw.receipts_outcome];
   let gasBurnt = 0n;
   let tokensBurnt = 0n;
@@ -147,6 +170,12 @@ export function parseOutcome(raw: FinalExecutionOutcomeRaw): TxOutcome {
     finalExecutionStatus: raw.final_execution_status,
     raw,
   };
+}
+
+/** BigInt of a numeric RPC field, or a PerdeError naming the field (never a raw TypeError/SyntaxError). */
+function bigintField(value: unknown, what: string, raw: unknown): bigint {
+  if ((typeof value === 'string' && /^\d+$/.test(value)) || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) return BigInt(value);
+  throw new PerdeError('RPC_ERROR', `unexpected RPC response: ${what} is ${JSON.stringify(value)} (${describeFailure(raw).slice(0, 200)})`, raw);
 }
 
 function describeFailure(failure: unknown): string {
@@ -216,8 +245,27 @@ export class NearRpc {
     throw new PerdeError('RPC_UNAVAILABLE', `all RPC endpoints failed for ${method}: ${failures.join('; ')}`, failures);
   }
 
-  private query<T>(params: Record<string, unknown>): Promise<T> {
-    return this.call<T>('query', { finality: this.finality, ...params });
+  /**
+   * `query` RPC. Some errors arrive as a *successful* JSON-RPC response whose
+   * result is `{error: "...", logs, block_height, block_hash}` (nearcore's
+   * legacy shape, still served by testnet RPCs for contract panics and
+   * missing access keys). Those are turned into `RpcError`s here so callers
+   * never read fields off an error object.
+   */
+  private async query<T>(params: Record<string, unknown>): Promise<T> {
+    const r = await this.call<unknown>('query', { finality: this.finality, ...params });
+    if (isRecord(r) && typeof r.error === 'string') {
+      const what = `${String(params.request_type)} ${String(params.account_id)}${typeof params.method_name === 'string' ? `.${params.method_name}` : ''}`;
+      const causeName =
+        params.request_type === 'call_function'
+          ? 'CONTRACT_EXECUTION_ERROR'
+          : params.request_type === 'view_access_key' && /does not exist|not found/i.test(r.error)
+            ? 'UNKNOWN_ACCESS_KEY'
+            : 'QUERY_ERROR';
+      throw new RpcError(`query ${what} failed: ${causeName}: ${r.error}`, 'HANDLER_ERROR', causeName, r);
+    }
+    if (!isRecord(r)) throw new PerdeError('RPC_ERROR', `query ${String(params.request_type)}: unexpected response ${describeFailure(r).slice(0, 300)}`, r);
+    return r as T;
   }
 
   async viewAccount(accountId: string): Promise<AccountView> {
@@ -226,8 +274,8 @@ export class NearRpc {
       account_id: accountId,
     });
     return {
-      amount: BigInt(r.amount),
-      locked: BigInt(r.locked),
+      amount: bigintField(r.amount, `view_account ${accountId}.amount`, r),
+      locked: bigintField(r.locked, `view_account ${accountId}.locked`, r),
       codeHash: r.code_hash,
       storageUsage: r.storage_usage,
       blockHeight: r.block_height,
@@ -254,13 +302,23 @@ export class NearRpc {
     return (await this.viewAccountOrNull(accountId))?.amount ?? 0n;
   }
 
+  /**
+   * Call a view method. A contract panic is thrown as `RpcError` with
+   * `causeName` "CONTRACT_EXECUTION_ERROR" whichever way the node reports it:
+   * as a JSON-RPC error, or (nearcore's legacy shape, still returned by
+   * testnet RPCs) as `result: {error: "wasm execution failed ...", logs}`
+   * without a `result` byte array.
+   */
   async viewFunction<T>(contractId: string, methodName: string, args: object = {}): Promise<T> {
-    const r = await this.query<{ result: number[]; logs: string[] }>({
+    const r = await this.query<{ result?: unknown; error?: unknown; logs?: string[]; block_height?: number }>({
       request_type: 'call_function',
       account_id: contractId,
       method_name: methodName,
       args_base64: base64.encode(utf8ToBytes(JSON.stringify(args))),
     });
+    if (!Array.isArray(r.result) || !r.result.every((b) => typeof b === 'number')) {
+      throw new PerdeError('RPC_ERROR', `${contractId}.${methodName}: unexpected view response ${describeFailure(r).slice(0, 300)}`, r);
+    }
     const text = new TextDecoder().decode(Uint8Array.from(r.result));
     return (text === '' ? null : JSON.parse(text)) as T;
   }
@@ -272,11 +330,12 @@ export class NearRpc {
       account_id: accountId,
       public_key: pk,
     });
-    return { nonce: BigInt(r.nonce), permission: r.permission, blockHash: r.block_hash, blockHeight: r.block_height };
+    return { nonce: bigintField(r.nonce, `access key ${pk} of ${accountId}: nonce`, r), permission: r.permission, blockHash: r.block_hash, blockHeight: r.block_height };
   }
 
   async latestBlock(finality: Finality = 'final'): Promise<BlockInfo> {
-    const r = await this.call<{ header: { hash: string; height: number } }>('block', { finality });
+    const r = await this.call<{ header?: { hash: string; height: number } }>('block', { finality });
+    if (r.header === undefined || typeof r.header.hash !== 'string') throw new PerdeError('RPC_ERROR', `block: unexpected response ${describeFailure(r).slice(0, 300)}`, r);
     return { hash: r.header.hash, height: r.header.height };
   }
 
@@ -285,8 +344,8 @@ export class NearRpc {
   }
 
   async gasPrice(): Promise<bigint> {
-    const r = await this.call<{ gas_price: string }>('gas_price', [null]);
-    return BigInt(r.gas_price);
+    const r = await this.call<{ gas_price?: unknown }>('gas_price', [null]);
+    return bigintField(r.gas_price, 'gas_price', r);
   }
 
   async protocolConfig(): Promise<ProtocolFeeConfig> {
@@ -302,7 +361,8 @@ export class NearRpc {
   async sendTransaction(stx: SignedTransaction, waitUntil: WaitUntil = 'EXECUTED_OPTIMISTIC'): Promise<TxOutcome> {
     let raw: FinalExecutionOutcomeRaw;
     try {
-      raw = await this.call<FinalExecutionOutcomeRaw>('send_tx', { signed_tx_base64: signedTransactionBase64(stx), wait_until: waitUntil });
+      const sent = await this.call<unknown>('send_tx', { signed_tx_base64: signedTransactionBase64(stx), wait_until: waitUntil });
+      raw = isCompleteOutcome(sent) ? sent : (await this.waitForTx(stx.hash, stx.transaction.signerId, waitUntil)).raw;
     } catch (e) {
       if (e instanceof RpcError && e.causeName === 'TIMEOUT_ERROR') {
         raw = (await this.waitForTx(stx.hash, stx.transaction.signerId, waitUntil)).raw;
@@ -324,16 +384,19 @@ export class NearRpc {
     return parseOutcome(raw);
   }
 
-  private async waitForTx(hash: string, senderId: string, waitUntil: WaitUntil, attempts = 10): Promise<TxOutcome> {
+  /** Polls `tx` until a complete outcome is available (TIMEOUT / UNKNOWN_TRANSACTION / partial results are retried). */
+  private async waitForTx(hash: string, senderId: string, waitUntil: WaitUntil, attempts = 15): Promise<TxOutcome> {
     let last: unknown;
     for (let i = 0; i < attempts; i++) {
       try {
-        return await this.txStatus(hash, senderId, waitUntil);
+        const raw = await this.call<unknown>('tx', { tx_hash: hash, sender_account_id: senderId, wait_until: waitUntil });
+        if (isCompleteOutcome(raw)) return parseOutcome(raw);
+        last = new PerdeError('RPC_ERROR', `transaction ${hash} not executed yet: ${describeFailure(raw).slice(0, 200)}`, raw);
       } catch (e) {
         last = e;
         if (!(e instanceof RpcError) || (e.causeName !== 'TIMEOUT_ERROR' && e.causeName !== 'UNKNOWN_TRANSACTION')) throw e;
-        await new Promise((r) => setTimeout(r, 1000));
       }
+      await new Promise((r) => setTimeout(r, 1000));
     }
     throw new PerdeError('RPC_UNAVAILABLE', `transaction ${hash} not confirmed in time`, last);
   }
