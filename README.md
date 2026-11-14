@@ -61,7 +61,7 @@ npm run dev       # http://localhost:5173
 3. Click **Run steps 1–4** — the app creates a testnet wallet from the faucet, creates your identity, sends 0.05 NEAR to your own meta-address and scans for it. The checklist ticks itself off from real chain state; each step shows a transaction link.
 4. Open **Inbox** — you see the 0.05 NEAR payment and the stealth account that holds it.
 5. Click **Chain view** — you see what a public observer gets (the transaction, the contract call, the announcement row) next to what only you know.
-6. Click **Claim to…**, keep the suggested destination, confirm — you see the claim transaction, signed in the browser by the stealth account itself.
+6. Click **Claim to…**, keep the suggested destination, confirm — you see the claim transaction, signed in the browser by the stealth account itself. (Or click **Pay someone from here** to pay another meta-address straight from the stealth account, without ever claiming.)
 7. Open **Invoice**, create an invoice for 0.5 NEAR, pick *USDC · Ethereum* under **Pay from any chain** and click **Get quote** — you see a real 1Click quote labelled *Preview — dry quote*.
 8. Open **Payroll**, click **Load sample**, review and send — you see one transaction containing several private payments.
 9. Open **DAO payout**, click **Propose payout**, then **Approve & execute** — you see the public proposal (which contains no recipient) and, back in the Inbox, the payout.
@@ -72,7 +72,7 @@ If the faucet is rate-limited, use **Settings & demo → Use an existing testnet
 ### 3. Tests
 
 ```bash
-npm test                # 130 offline tests: protocol, transaction encoding, RPC, DAO, UI logic
+npm test                # 156 offline tests: protocol, transaction encoding, RPC, DAO, UI logic
 npm run lint
 npm run typecheck
 npm run build
@@ -90,6 +90,7 @@ Every row is something you can run. Nothing here is mocked; the only preview-onl
 | A scalar-derived key controls a NEAR implicit account (scalar EdDSA signer) | `packages/core/src/near/signer.ts` | `crypto.test.ts`, `near.test.ts`; live: [`evidence/core-testnet-run.md`](evidence/core-testnet-run.md) §1 |
 | Announcement contract: atomic announce + transfer, name directory | `contracts/perde/src/lib.rs` | `contracts/perde/src/tests.rs`; live: [`evidence/contract-testnet-smoke.md`](evidence/contract-testnet-smoke.md) |
 | Send, scan, claim | `packages/core/src/perde/client.ts`, `apps/web/src/features/{send,inbox}` | `perde.test.ts`; `core-testnet-run.md` §3 |
+| Pay onward: a stealth account pays another meta-address itself, so funds never touch a named account | `apps/web/src/features/inbox/onward.ts`, `OnwardDialog.tsx` | `onward.test.ts`; `apps/web/scripts/e2e-smoke.mjs` |
 | Pay a registered NEAR name privately | `register` / `get_meta_address` in the contract | `core-testnet-run.md` §3 |
 | Invoices without announcements | `deriveInvoice`, `scanInvoices` | `crypto.test.ts`; `core-testnet-run.md` §2 |
 | Payroll: many payments in one transaction | `sendBatch`, `apps/web/src/features/payroll` | `batch.test.ts`, `csv.test.ts`; `core-testnet-run.md` §3 |
@@ -140,7 +141,7 @@ The protocol and the threat model are in [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 | That two payments went to the same recipient | The amount and the time |
 | The recipient's other accounts and balances | That Perde was used, and where claimed funds go |
 
-Perde hides the recipient, not the flow of funds. It is weaker than shielded pools or confidential transfers, which also hide amounts. Claiming a payment to your named account links the two; the app warns before you do it.
+Perde hides the recipient, not the flow of funds. It is weaker than shielded pools or confidential transfers, which also hide amounts. Claiming a payment to your named account links the two; the app warns before you do it, and offers to pay onward from the stealth account instead.
 
 ## Limitations
 
