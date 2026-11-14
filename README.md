@@ -72,13 +72,18 @@ If the faucet is rate-limited, use **Settings & demo → Use an existing testnet
 ### 3. Tests
 
 ```bash
-npm test                # 156 offline tests: protocol, transaction encoding, RPC, DAO, UI logic
+npm test                # 163 offline unit tests: protocol, transaction encoding, RPC, DAO, UI logic
 npm run lint
 npm run typecheck
 npm run build
 npm run test:contract   # 36 Rust unit tests (needs rustup; the pinned toolchain installs itself)
 npm run test:testnet    # live NEAR testnet integration tests (uses the faucet once, then a cached account)
+
+npm run setup:e2e       # once: installs Playwright and its Chromium, Firefox and WebKit builds
+npm run test:e2e        # browser suite in Chromium, Firefox, WebKit and two phone viewports; chain calls are answered from recorded fixtures, so it needs no funds
 ```
+
+`npm run test:e2e` also runs axe accessibility scans on every route and exercises failure paths (RPC down, slow network, 1Click errors, faucet rate limit). Results, Lighthouse scores, the dependency audit and the secret scan are in [`docs/QA_REPORT.md`](docs/QA_REPORT.md).
 
 ## Demo video and screenshots
 
