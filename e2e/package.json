@@ -1,0 +1,22 @@
+{
+  "name": "@perde/e2e",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Playwright end-to-end, accessibility and Lighthouse checks for apps/web.",
+  "scripts": {
+    "test": "playwright test --config playwright.config.ts",
+    "test:testnet": "playwright test --config playwright.testnet.config.ts",
+    "lighthouse": "node scripts/lighthouse.mjs",
+    "record-fixtures": "node scripts/record-fixtures.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.65.1",
+    "@types/node": "26.6.6",
+    "lighthouse": "13.6.0",
+    "typescript": "6.0.3"
+  }
+}

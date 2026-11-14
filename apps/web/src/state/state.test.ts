@@ -3,7 +3,7 @@ import deployments from '../../../../deployments/testnet.json';
 import { APP_CONFIG } from '../config';
 import { reducer } from './reducer';
 import { initialState, migrate, STORAGE_KEY, type PersistedState, type SentRecord } from './schema';
-import { clearState, loadState, saveState, type KeyValueStorage } from './storage';
+import { BACKUP_KEY, clearState, loadState, saveState, type KeyValueStorage } from './storage';
 import { mergeScan, scanStart } from './scan-cache';
 
 const HEX = 'a'.repeat(64);
@@ -79,6 +79,22 @@ describe('persistence', () => {
     expect(m.demo).toEqual({ dismissed: true, chainViewSeen: false, quoteSeen: false, daoPaid: false });
   });
 
+  it('keeps a copy of unreadable or other-version data before starting over', () => {
+    for (const bad of ['{not json', JSON.stringify({ v: 2, wallet: { accountId: 'a.testnet', secretKey: 'ed25519:x' } }), JSON.stringify({ v: 0 })]) {
+      const s = memoryStorage();
+      s.setItem(STORAGE_KEY, bad);
+      expect(loadState(s)).toEqual(initialState());
+      expect(s.data.get(BACKUP_KEY)).toBe(bad);
+      // A second load (or a second unreadable value) never overwrites the first backup.
+      s.setItem(STORAGE_KEY, '{also bad');
+      loadState(s);
+      expect(s.data.get(BACKUP_KEY)).toBe(bad);
+    }
+    const ok = memoryStorage();
+    saveState(initialState(), ok);
+    loadState(ok);
+    expect(ok.data.has(BACKUP_KEY)).toBe(false);
+  });
   it('clearState removes the key', () => {
     const s = memoryStorage();
     saveState(initialState(), s);

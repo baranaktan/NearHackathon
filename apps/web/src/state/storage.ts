@@ -1,4 +1,11 @@
-import { migrate, STORAGE_KEY, type PersistedState } from './schema';
+import { migrate, STATE_VERSION, STORAGE_KEY, type PersistedState } from './schema';
+
+/**
+ * Where a stored state this build cannot read (corrupt JSON, or another
+ * schema version) is copied before the app starts over, so the next save
+ * cannot destroy a wallet key or recovery phrase it still contains.
+ */
+export const BACKUP_KEY = 'perde:state:unreadable-backup';
 
 /** Minimal Storage surface, so tests can pass an in-memory implementation. */
 export type KeyValueStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -25,9 +32,20 @@ export function parseStored(text: string | null): PersistedState {
   }
 }
 
+function readable(text: string): boolean {
+  try {
+    const raw: unknown = JSON.parse(text);
+    return typeof raw === 'object' && raw !== null && (raw as { v?: unknown }).v === STATE_VERSION;
+  } catch {
+    return false;
+  }
+}
+
 export function loadState(storage: KeyValueStorage | null = defaultStorage()): PersistedState {
   try {
-    return parseStored(storage?.getItem(STORAGE_KEY) ?? null);
+    const text = storage?.getItem(STORAGE_KEY) ?? null;
+    if (text !== null && !readable(text) && storage && storage.getItem(BACKUP_KEY) === null) storage.setItem(BACKUP_KEY, text);
+    return parseStored(text);
   } catch {
     return migrate(null);
   }
@@ -47,6 +65,7 @@ export function saveState(state: PersistedState, storage: KeyValueStorage | null
 export function clearState(storage: KeyValueStorage | null = defaultStorage()): void {
   try {
     storage?.removeItem(STORAGE_KEY);
+    storage?.removeItem(BACKUP_KEY);
   } catch {
     /* nothing to clear */
   }

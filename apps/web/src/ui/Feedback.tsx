@@ -38,17 +38,21 @@ export function EmptyState({
   action,
   art = true,
   className,
+  headingLevel = 2,
 }: {
   title: ReactNode;
   children?: ReactNode;
   action?: ReactNode;
   art?: boolean;
   className?: string;
+  /** 1 when the empty state is the whole page (404). */
+  headingLevel?: 1 | 2 | 3;
 }) {
+  const Heading = `h${headingLevel}` as 'h1' | 'h2' | 'h3';
   return (
     <div className={cn('flex flex-col items-center px-6 py-12 text-center', className)}>
       {art && <EmptyStageArt />}
-      <h3 className={cn('font-display text-[26px] leading-tight text-fg', art && 'mt-5')}>{title}</h3>
+      <Heading className={cn('font-display text-[26px] leading-tight text-fg', art && 'mt-5')}>{title}</Heading>
       {children && <div className="mt-2 max-w-sm text-[14px] leading-relaxed text-fg-muted">{children}</div>}
       {action && <div className="mt-6 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>
@@ -87,7 +91,7 @@ export function Callout({
       <Icon aria-hidden className="mt-0.5 size-4 shrink-0 text-(--c)" />
       <div className="min-w-0 flex-1 text-[14px] leading-relaxed">
         {title && <p className="font-medium text-fg">{title}</p>}
-        {children && <div className={cn('text-fg-muted', title ? 'mt-0.5' : undefined)}>{children}</div>}
+        {children && <div className={cn('text-fg-muted [overflow-wrap:anywhere]', title ? 'mt-0.5' : undefined)}>{children}</div>}
         {action && <div className="mt-3">{action}</div>}
       </div>
     </div>

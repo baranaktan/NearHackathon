@@ -1,0 +1,322 @@
+{
+  "label": "before",
+  "ranAt": "2026-11-14T06:21:33.841Z",
+  "lighthouse": "13.6.0",
+  "runsPerPage": 3,
+  "chromium": "C:\\Users\\ahmet\\AppData\\Local\\ms-playwright\\chromium-1255\\chrome-win64\\chrome.exe",
+  "results": {
+    "landing/mobile": {
+      "url": "/",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 91
+      },
+      "allRuns": [
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        },
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        },
+        {
+          "performance": 99,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        }
+      ],
+      "metrics": {
+        "first-contentful-paint": "0.8 s",
+        "largest-contentful-paint": "0.8 s",
+        "total-blocking-time": "110 ms",
+        "cumulative-layout-shift": "0.001",
+        "speed-index": "0.8 s",
+        "interactive": "2.9 s"
+      },
+      "failing": [
+        {
+          "id": "max-potential-fid",
+          "score": 0.74,
+          "title": "Max Potential First Input Delay",
+          "displayValue": "180 ms"
+        },
+        {
+          "id": "td-has-header",
+          "score": 0,
+          "title": "`<td>` elements in a large `<table>` do not have table headers."
+        },
+        {
+          "id": "unused-javascript",
+          "score": 0.5,
+          "title": "Reduce unused JavaScript",
+          "displayValue": "Est savings of 79 KiB"
+        },
+        {
+          "id": "robots-txt",
+          "score": 0,
+          "title": "robots.txt is not valid",
+          "displayValue": "54 errors found"
+        },
+        {
+          "id": "llms-txt",
+          "score": 0,
+          "title": "llms.txt does not follow recommendations"
+        },
+        {
+          "id": "ard-schema",
+          "score": 0,
+          "title": "ARD manifest is invalid"
+        },
+        {
+          "id": "network-dependency-tree-insight",
+          "score": 0,
+          "title": "Network dependency tree"
+        },
+        {
+          "id": "render-blocking-insight",
+          "score": 0,
+          "title": "Render-blocking requests",
+          "displayValue": "Est savings of 150 ms"
+        }
+      ]
+    },
+    "landing/desktop": {
+      "url": "/",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 91
+      },
+      "allRuns": [
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        },
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        },
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        }
+      ],
+      "metrics": {
+        "first-contentful-paint": "0.4 s",
+        "largest-contentful-paint": "0.4 s",
+        "total-blocking-time": "0 ms",
+        "cumulative-layout-shift": "0.001",
+        "speed-index": "0.4 s",
+        "interactive": "0.4 s"
+      },
+      "failing": [
+        {
+          "id": "td-has-header",
+          "score": 0,
+          "title": "`<td>` elements in a large `<table>` do not have table headers."
+        },
+        {
+          "id": "unused-javascript",
+          "score": 0,
+          "title": "Reduce unused JavaScript",
+          "displayValue": "Est savings of 79 KiB"
+        },
+        {
+          "id": "robots-txt",
+          "score": 0,
+          "title": "robots.txt is not valid",
+          "displayValue": "54 errors found"
+        },
+        {
+          "id": "llms-txt",
+          "score": 0,
+          "title": "llms.txt does not follow recommendations"
+        },
+        {
+          "id": "ard-schema",
+          "score": 0,
+          "title": "ARD manifest is invalid"
+        },
+        {
+          "id": "network-dependency-tree-insight",
+          "score": 0,
+          "title": "Network dependency tree"
+        },
+        {
+          "id": "render-blocking-insight",
+          "score": 0.5,
+          "title": "Render-blocking requests"
+        }
+      ]
+    },
+    "app-start/mobile": {
+      "url": "/#/app/start",
+      "scores": {
+        "performance": 92,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 91
+      },
+      "allRuns": [
+        {
+          "performance": 92,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        },
+        {
+          "performance": 91,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        },
+        {
+          "performance": 93,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        }
+      ],
+      "metrics": {
+        "first-contentful-paint": "0.8 s",
+        "largest-contentful-paint": "3.3 s",
+        "total-blocking-time": "50 ms",
+        "cumulative-layout-shift": "0",
+        "speed-index": "0.8 s",
+        "interactive": "3.3 s"
+      },
+      "failing": [
+        {
+          "id": "largest-contentful-paint",
+          "score": 0.71,
+          "title": "Largest Contentful Paint",
+          "displayValue": "3.3 s"
+        },
+        {
+          "id": "label-content-name-mismatch",
+          "score": 0,
+          "title": "Elements with visible text labels do not have matching accessible names."
+        },
+        {
+          "id": "unused-javascript",
+          "score": 0,
+          "title": "Reduce unused JavaScript",
+          "displayValue": "Est savings of 88 KiB"
+        },
+        {
+          "id": "robots-txt",
+          "score": 0,
+          "title": "robots.txt is not valid",
+          "displayValue": "54 errors found"
+        },
+        {
+          "id": "llms-txt",
+          "score": 0,
+          "title": "llms.txt does not follow recommendations"
+        },
+        {
+          "id": "ard-schema",
+          "score": 0,
+          "title": "ARD manifest is invalid"
+        },
+        {
+          "id": "network-dependency-tree-insight",
+          "score": 0,
+          "title": "Network dependency tree"
+        },
+        {
+          "id": "render-blocking-insight",
+          "score": 0,
+          "title": "Render-blocking requests",
+          "displayValue": "Est savings of 150 ms"
+        }
+      ]
+    },
+    "app-start/desktop": {
+      "url": "/#/app/start",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 91
+      },
+      "allRuns": [
+        {
+          "performance": 95,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        },
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        },
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 91
+        }
+      ],
+      "metrics": {
+        "first-contentful-paint": "0.4 s",
+        "largest-contentful-paint": "0.7 s",
+        "total-blocking-time": "0 ms",
+        "cumulative-layout-shift": "0.004",
+        "speed-index": "0.4 s",
+        "interactive": "0.7 s"
+      },
+      "failing": [
+        {
+          "id": "unused-javascript",
+          "score": 0,
+          "title": "Reduce unused JavaScript",
+          "displayValue": "Est savings of 88 KiB"
+        },
+        {
+          "id": "robots-txt",
+          "score": 0,
+          "title": "robots.txt is not valid",
+          "displayValue": "54 errors found"
+        },
+        {
+          "id": "llms-txt",
+          "score": 0,
+          "title": "llms.txt does not follow recommendations"
+        },
+        {
+          "id": "ard-schema",
+          "score": 0,
+          "title": "ARD manifest is invalid"
+        },
+        {
+          "id": "network-dependency-tree-insight",
+          "score": 0,
+          "title": "Network dependency tree"
+        },
+        {
+          "id": "render-blocking-insight",
+          "score": 0.5,
+          "title": "Render-blocking requests"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,323 @@
+{
+  "label": "after",
+  "ranAt": "2026-11-14T11:02:30.375Z",
+  "lighthouse": "13.6.0",
+  "runsPerPage": 3,
+  "chromium": "C:\\Users\\ahmet\\AppData\\Local\\ms-playwright\\chromium-1255\\chrome-win64\\chrome.exe",
+  "results": {
+    "landing/mobile": {
+      "url": "/",
+      "scores": {
+        "performance": 96,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100
+      },
+      "allRuns": [
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        },
+        {
+          "performance": 96,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        },
+        {
+          "performance": 87,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        }
+      ],
+      "metrics": {
+        "first-contentful-paint": "0.8 s",
+        "largest-contentful-paint": "0.8 s",
+        "total-blocking-time": "540 ms",
+        "cumulative-layout-shift": "0.002",
+        "speed-index": "1.2 s",
+        "interactive": "3.0 s"
+      },
+      "failing": [
+        {
+          "id": "total-blocking-time",
+          "score": 0.55,
+          "title": "Total Blocking Time",
+          "displayValue": "540 ms"
+        },
+        {
+          "id": "max-potential-fid",
+          "score": 0.26,
+          "title": "Max Potential First Input Delay",
+          "displayValue": "340 ms"
+        },
+        {
+          "id": "mainthread-work-breakdown",
+          "score": 0,
+          "title": "Minimize main-thread work",
+          "displayValue": "3.2 s"
+        },
+        {
+          "id": "td-has-header",
+          "score": 0,
+          "title": "`<td>` elements in a large `<table>` do not have table headers."
+        },
+        {
+          "id": "unused-javascript",
+          "score": 0.5,
+          "title": "Reduce unused JavaScript",
+          "displayValue": "Est savings of 80 KiB"
+        },
+        {
+          "id": "llms-txt",
+          "score": 0,
+          "title": "llms.txt does not follow recommendations"
+        },
+        {
+          "id": "ard-schema",
+          "score": 0,
+          "title": "ARD manifest is invalid"
+        },
+        {
+          "id": "forced-reflow-insight",
+          "score": 0,
+          "title": "Forced reflow"
+        },
+        {
+          "id": "network-dependency-tree-insight",
+          "score": 0,
+          "title": "Network dependency tree"
+        },
+        {
+          "id": "render-blocking-insight",
+          "score": 0,
+          "title": "Render-blocking requests",
+          "displayValue": "Est savings of 80 ms"
+        }
+      ]
+    },
+    "landing/desktop": {
+      "url": "/",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100
+      },
+      "allRuns": [
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        },
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        },
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        }
+      ],
+      "metrics": {
+        "first-contentful-paint": "0.2 s",
+        "largest-contentful-paint": "0.2 s",
+        "total-blocking-time": "50 ms",
+        "cumulative-layout-shift": "0.017",
+        "speed-index": "0.5 s",
+        "interactive": "0.3 s"
+      },
+      "failing": [
+        {
+          "id": "td-has-header",
+          "score": 0,
+          "title": "`<td>` elements in a large `<table>` do not have table headers."
+        },
+        {
+          "id": "unused-javascript",
+          "score": 0.5,
+          "title": "Reduce unused JavaScript",
+          "displayValue": "Est savings of 80 KiB"
+        },
+        {
+          "id": "llms-txt",
+          "score": 0,
+          "title": "llms.txt does not follow recommendations"
+        },
+        {
+          "id": "ard-schema",
+          "score": 0,
+          "title": "ARD manifest is invalid"
+        },
+        {
+          "id": "network-dependency-tree-insight",
+          "score": 0,
+          "title": "Network dependency tree"
+        },
+        {
+          "id": "render-blocking-insight",
+          "score": 0,
+          "title": "Render-blocking requests",
+          "displayValue": "Est savings of 50 ms"
+        }
+      ]
+    },
+    "app-start/mobile": {
+      "url": "/#/app/start",
+      "scores": {
+        "performance": 90,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100
+      },
+      "allRuns": [
+        {
+          "performance": 91,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        },
+        {
+          "performance": 90,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        },
+        {
+          "performance": 90,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        }
+      ],
+      "metrics": {
+        "first-contentful-paint": "0.8 s",
+        "largest-contentful-paint": "3.3 s",
+        "total-blocking-time": "200 ms",
+        "cumulative-layout-shift": "0.041",
+        "speed-index": "0.8 s",
+        "interactive": "3.3 s"
+      },
+      "failing": [
+        {
+          "id": "largest-contentful-paint",
+          "score": 0.71,
+          "title": "Largest Contentful Paint",
+          "displayValue": "3.3 s"
+        },
+        {
+          "id": "max-potential-fid",
+          "score": 0.64,
+          "title": "Max Potential First Input Delay",
+          "displayValue": "210 ms"
+        },
+        {
+          "id": "unused-javascript",
+          "score": 0,
+          "title": "Reduce unused JavaScript",
+          "displayValue": "Est savings of 89 KiB"
+        },
+        {
+          "id": "llms-txt",
+          "score": 0,
+          "title": "llms.txt does not follow recommendations"
+        },
+        {
+          "id": "ard-schema",
+          "score": 0,
+          "title": "ARD manifest is invalid"
+        },
+        {
+          "id": "network-dependency-tree-insight",
+          "score": 0,
+          "title": "Network dependency tree"
+        },
+        {
+          "id": "render-blocking-insight",
+          "score": 0,
+          "title": "Render-blocking requests",
+          "displayValue": "Est savings of 130 ms"
+        }
+      ]
+    },
+    "app-start/desktop": {
+      "url": "/#/app/start",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100
+      },
+      "allRuns": [
+        {
+          "performance": 99,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        },
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        },
+        {
+          "performance": 100,
+          "accessibility": 100,
+          "best-practices": 100,
+          "seo": 100
+        }
+      ],
+      "metrics": {
+        "first-contentful-paint": "0.2 s",
+        "largest-contentful-paint": "0.7 s",
+        "total-blocking-time": "0 ms",
+        "cumulative-layout-shift": "0.004",
+        "speed-index": "0.2 s",
+        "interactive": "0.7 s"
+      },
+      "failing": [
+        {
+          "id": "unused-javascript",
+          "score": 0,
+          "title": "Reduce unused JavaScript",
+          "displayValue": "Est savings of 89 KiB"
+        },
+        {
+          "id": "llms-txt",
+          "score": 0,
+          "title": "llms.txt does not follow recommendations"
+        },
+        {
+          "id": "ard-schema",
+          "score": 0,
+          "title": "ARD manifest is invalid"
+        },
+        {
+          "id": "forced-reflow-insight",
+          "score": 0,
+          "title": "Forced reflow"
+        },
+        {
+          "id": "network-dependency-tree-insight",
+          "score": 0,
+          "title": "Network dependency tree"
+        },
+        {
+          "id": "render-blocking-insight",
+          "score": 0,
+          "title": "Render-blocking requests",
+          "displayValue": "Est savings of 50 ms"
+        }
+      ]
+    }
+  }
+}

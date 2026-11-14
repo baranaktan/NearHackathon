@@ -7,8 +7,10 @@ import { AppStateProvider } from './state/AppStateProvider';
 import { AppLayout } from './app-shell/AppLayout';
 import Landing from './landing/Landing';
 import NotFound from './NotFound';
+import { loadGuidedDemo } from './route-loaders';
+import { RouteErrorBoundary } from './ui/RouteErrorBoundary';
 
-const GuidedDemoPage = lazy(() => import('./features/demo/GuidedDemoPage'));
+const GuidedDemoPage = lazy(loadGuidedDemo);
 const ReceivePage = lazy(() => import('./features/receive/ReceivePage'));
 const SendPage = lazy(() => import('./features/send/SendPage'));
 const InboxPage = lazy(() => import('./features/inbox/InboxPage'));
@@ -36,9 +38,11 @@ export default function App() {
                   <Route
                     path="/pay"
                     element={
-                      <Suspense fallback={null}>
-                        <PayPage />
-                      </Suspense>
+                      <RouteErrorBoundary>
+                        <Suspense fallback={null}>
+                          <PayPage />
+                        </Suspense>
+                      </RouteErrorBoundary>
                     }
                   />
                   <Route path="/app" element={<AppLayout />}>
@@ -58,9 +62,11 @@ export default function App() {
                   <Route
                     path="/kit"
                     element={
-                      <Suspense fallback={null}>
-                        <KitPage />
-                      </Suspense>
+                      <RouteErrorBoundary>
+                        <Suspense fallback={null}>
+                          <KitPage />
+                        </Suspense>
+                      </RouteErrorBoundary>
                     }
                   />
                   <Route path="*" element={<NotFound />} />

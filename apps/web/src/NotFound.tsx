@@ -3,9 +3,12 @@ import { ButtonLink } from './ui/Button';
 import { EmptyState } from './ui/Feedback';
 
 export default function NotFound({ inApp = false }: { inApp?: boolean }) {
+  // Inside the app shell the page already sits in <main>.
+  const Wrapper = inApp ? 'div' : 'main';
   return (
-    <div className={inApp ? '' : 'flex min-h-dvh items-center justify-center bg-bg px-6'}>
+    <Wrapper className={inApp ? '' : 'flex min-h-dvh items-center justify-center bg-bg px-6'}>
       <EmptyState
+        headingLevel={1}
         title="Nothing on this stage"
         action={
           <ButtonLink to={inApp ? '/app' : '/'} variant="secondary" icon={<ArrowLeft aria-hidden className="size-4" />}>
@@ -15,6 +18,6 @@ export default function NotFound({ inApp = false }: { inApp?: boolean }) {
       >
         This page doesn&rsquo;t exist.
       </EmptyState>
-    </div>
+    </Wrapper>
   );
 }

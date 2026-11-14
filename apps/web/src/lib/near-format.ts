@@ -24,6 +24,19 @@ export function sanitizeAmountInput(raw: string): string {
   return out;
 }
 
+/**
+ * What an amount field shows after a keystroke or paste. Input whose meaning
+ * would change by dropping characters is refused (the field keeps `previous`)
+ * instead of being "cleaned": a pasted "1e-3" must not become 13, "-5" must
+ * not become 5, and "1,000.50" (thousands separator) must not become 1.0005.
+ * A lone comma is still read as a decimal separator ("12,5" -> "12.5").
+ */
+export function acceptAmountInput(raw: string, previous: string): string {
+  const v = raw.trim();
+  if (/[eE+-]/.test(v) || (v.includes(',') && v.includes('.')) || (v.match(/,/g)?.length ?? 0) > 1) return previous;
+  return sanitizeAmountInput(v);
+}
+
 /** "1.5" -> "1500000000000000000000000". Rejects empty, zero-only is allowed (caller decides). */
 export function parseNearToYocto(input: string): ParseResult {
   const value = input.trim();

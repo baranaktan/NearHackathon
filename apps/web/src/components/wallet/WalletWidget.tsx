@@ -16,7 +16,7 @@ export function WalletWidget({ compact = false, className }: { compact?: boolean
     ) : balance.status === 'missing' ? (
       <span className="text-danger">not found</span>
     ) : balance.status === 'error' ? (
-      <span className="text-warn">balance unavailable</span>
+      <span className="text-warn">{compact ? 'unavailable' : 'balance unavailable'}</span>
     ) : null;
 
   if (compact) {
@@ -24,13 +24,14 @@ export function WalletWidget({ compact = false, className }: { compact?: boolean
       <Link
         to="/app/settings"
         className={cn(
-          'inline-flex h-9 min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line-strong px-3 text-[12px] text-fg-muted hover:border-brass hover:text-fg',
+          // May shrink (with an ellipsis) so a long status never pushes the mobile top bar past the screen edge.
+          'inline-flex h-9 min-w-0 shrink items-center gap-1.5 whitespace-nowrap rounded-full border border-line-strong px-3 text-[12px] text-fg-muted hover:border-brass hover:text-fg',
           className,
         )}
-        aria-label={wallet ? `Demo wallet ${wallet.accountId}` : 'Get a demo wallet'}
       >
         <Wallet aria-hidden className="size-3.5 shrink-0" />
-        {wallet ? amount : <span>Get wallet</span>}
+        {wallet && <span className="sr-only">Demo wallet {wallet.accountId}: </span>}
+        <span className="min-w-0 truncate">{wallet ? amount : 'Get wallet'}</span>
       </Link>
     );
   }

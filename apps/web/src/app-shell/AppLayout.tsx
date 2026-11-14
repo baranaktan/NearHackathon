@@ -1,4 +1,5 @@
 ﻿import { Suspense, useEffect, useState } from 'react';
+import { RouteErrorBoundary } from '../ui/RouteErrorBoundary';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
 import { ArrowLeft, MoreHorizontal } from 'lucide-react';
 import { cn } from '../lib/cn';
@@ -169,7 +170,14 @@ function MobileTabBar() {
   );
 }
 
+/** Shown only if a page chunk takes longer than a moment, so fast loads never flash a skeleton. */
 function PageFallback() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setShow(true), 350);
+    return () => window.clearTimeout(t);
+  }, []);
+  if (!show) return <div className="min-h-56" aria-busy="true" aria-label="Loading page" />;
   return (
     <div className="space-y-4" aria-busy="true" aria-label="Loading page">
       <Skeleton className="h-4 w-24" />
@@ -188,26 +196,30 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-dvh bg-bg">
-      <a
-        href="#/"
-        onClick={(e) => {
-          e.preventDefault();
-          document.getElementById('app-main')?.focus();
-        }}
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-surface focus:px-4 focus:py-2"
-      >
-        Skip to content
-      </a>
+      <nav aria-label="Skip link">
+        <a
+          href="#/"
+          onClick={(e) => {
+            e.preventDefault();
+            document.getElementById('app-main')?.focus();
+          }}
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-surface focus:px-4 focus:py-2"
+        >
+          Skip to content
+        </a>
+      </nav>
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <MobileTopBar />
         <main id="app-main" tabIndex={-1} className="flex-1 outline-none">
           <div className="mx-auto w-full max-w-[960px] px-4 pb-32 pt-8 sm:px-8 sm:pt-12 lg:pb-20">
-            <Suspense fallback={<PageFallback />}>
-              <div key={location.pathname}>
-                <Outlet />
-              </div>
-            </Suspense>
+            <RouteErrorBoundary resetKey={location.pathname}>
+              <Suspense fallback={<PageFallback />}>
+                <div key={location.pathname}>
+                  <Outlet />
+                </div>
+              </Suspense>
+            </RouteErrorBoundary>
           </div>
         </main>
       </div>

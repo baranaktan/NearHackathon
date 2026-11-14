@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRecipient, formatYocto, parseNearToYocto, sanitizeAmountInput, truncateMiddle } from './near-format';
+import { acceptAmountInput, classifyRecipient, formatYocto, parseNearToYocto, sanitizeAmountInput, truncateMiddle } from './near-format';
 
 describe('parseNearToYocto', () => {
   it('converts decimals without floating point', () => {
@@ -33,6 +33,23 @@ describe('sanitizeAmountInput', () => {
     expect(sanitizeAmountInput('1.2.3')).toBe('1.23');
     expect(sanitizeAmountInput('007')).toBe('7');
     expect(sanitizeAmountInput('0.5abc')).toBe('0.5');
+  });
+});
+
+describe('acceptAmountInput', () => {
+  it('refuses input whose meaning would change when cleaned', () => {
+    expect(acceptAmountInput('1e-3', '0.5')).toBe('0.5');
+    expect(acceptAmountInput('1E3', '')).toBe('');
+    expect(acceptAmountInput('-5', '2')).toBe('2');
+    expect(acceptAmountInput('+5', '2')).toBe('2');
+    expect(acceptAmountInput('1,000.50', '')).toBe('');
+    expect(acceptAmountInput('1,000,000', '')).toBe('');
+  });
+  it('accepts plain decimals, a decimal comma and surrounding spaces', () => {
+    expect(acceptAmountInput(' 12,5 ', '')).toBe('12.5');
+    expect(acceptAmountInput('0.25', '0.2')).toBe('0.25');
+    expect(acceptAmountInput('', '3')).toBe('');
+    expect(acceptAmountInput('0.' + '1'.repeat(30), '')).toBe('0.' + '1'.repeat(24));
   });
 });
 

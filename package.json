@@ -20,6 +20,13 @@
     "test:testnet": "npm --prefix packages/core run test:testnet",
     "demo:testnet": "node scripts/demo/demo-testnet.mjs",
     "dao:setup": "node scripts/dao/setup.mjs",
-    "dao:fund": "node scripts/dao/fund.mjs"
+    "dao:fund": "node scripts/dao/fund.mjs",
+    "setup:e2e": "npm --prefix e2e ci && npm --prefix e2e exec -- playwright install chromium firefox webkit",
+    "test:e2e": "npm --prefix e2e test",
+    "test:e2e:testnet": "npm --prefix e2e run test:testnet",
+    "lighthouse": "npm --prefix e2e run lighthouse -- --html",
+    "audit:secrets": "node e2e/scripts/secret-scan.mjs",
+    "demo:video":"node scripts/video/ensure-deps.mjs && node scripts/video/record-demo.mjs",
+    "demo:screenshots": "node scripts/video/ensure-deps.mjs && node scripts/video/screenshots.mjs"
   }
 }

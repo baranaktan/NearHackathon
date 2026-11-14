@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -12,23 +13,43 @@ import tailwindcss from '@tailwindcss/vite';
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const coreEntry = fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url));
 
-/**
- * Preload the two faces that render above the fold (Geist for UI, Instrument
- * Serif for display). Fontsource files get content-hashed names at build time,
- * so we look them up in the bundle instead of hard-coding paths.
+/*
+ * No <link rel="preload"> for fonts: WebKit fetches same-origin @font-face files
+ * in no-cors mode, so a `crossorigin` font preload is never reused there (the
+ * file downloads twice and Safari warns "preloaded but not used"), while
+ * Chromium needs `crossorigin` to reuse it. Measured with the e2e suite on
+ * 2026-11-14; the faces are small and `font-display: swap` keeps text visible.
  */
-function preloadFonts(patterns: RegExp[]): Plugin {
+/**
+ * Content-Security-Policy for the production build only (the dev server needs
+ * its HMR websocket and inline modules). The app has no backend: it may only
+ * talk to the NEAR testnet RPCs in src/config.ts, the testnet faucet helper
+ * and NEAR Intents 1Click (packages/core). The one inline script (theme before
+ * first paint) is allowed by its hash. Verified by the e2e suites, which fail
+ * on any console error, including CSP violations.
+ */
+const CONNECT_ORIGINS = ['https://near-testnet.drpc.org', 'https://test.rpc.fastnear.com', 'https://helper.nearprotocol.com', 'https://1click.chaindefuser.com'];
+function contentSecurityPolicy(): Plugin {
   return {
-    name: 'perde:preload-fonts',
+    name: 'perde:csp',
     apply: 'build',
-    transformIndexHtml(_html, ctx) {
-      if (!ctx.bundle) return [];
-      const files = Object.keys(ctx.bundle).filter((f) => patterns.some((p) => p.test(f)));
-      return files.map((file) => ({
-        tag: 'link',
-        attrs: { rel: 'preload', as: 'font', type: 'font/woff2', href: `./${file}`, crossorigin: '' },
-        injectTo: 'head' as const,
-      }));
+    transformIndexHtml: {
+      order: 'post',
+      handler(html) {
+        const hashes = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => `'sha256-${createHash('sha256').update(m[1] ?? '').digest('base64')}'`);
+        const policy = [
+          "default-src 'self'",
+          `script-src 'self' ${hashes.join(' ')}`,
+          "style-src 'self'",
+          "img-src 'self' data: blob:",
+          "font-src 'self'",
+          `connect-src 'self' ${CONNECT_ORIGINS.join(' ')}`,
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+        ].join('; ');
+        return [{ tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: policy }, injectTo: 'head-prepend' }];
+      },
     },
   };
 }
@@ -42,11 +63,7 @@ export default defineConfig({
     // Let the dev server read packages/core/src and its node_modules.
     fs: { allow: [repoRoot] },
   },
-  plugins: [
-    react(),
-    tailwindcss(),
-    preloadFonts([/geist-latin-wght-normal.*\.woff2$/, /instrument-serif-latin-400-normal.*\.woff2$/]),
-  ],
+  plugins: [react(), tailwindcss(), contentSecurityPolicy()],
   build: {
     target: 'es2022',
     assetsInlineLimit: 0,

@@ -104,8 +104,11 @@ export function AnyChainPanel({ stealthAccountId, amountYocto }: { stealthAccoun
             <div className="grid items-center gap-4 p-4 sm:grid-cols-[1fr_auto_1fr] sm:p-5">
               <div className="min-w-0">
                 <p className="text-[12px] text-fg-muted">Payer sends about</p>
-                <p className="num mt-1 break-hex font-mono text-[22px] text-fg">
-                  {quote.quote.amountInFormatted} <span className="text-[13px] text-fg-faint">{asset?.symbol} · {asset?.chainName}</span>
+                <p className="num mt-1 font-mono text-[22px] text-fg">
+                  <span className="break-hex">{quote.quote.amountInFormatted}</span>{' '}
+                  <span className="inline-block text-[13px] text-fg-faint" data-testid="quote-asset">
+                    {asset?.symbol} · {asset?.chainName}
+                  </span>
                 </p>
                 {quote.quote.amountInUsd && <p className="num mt-0.5 font-mono text-[12px] text-fg-faint">≈ ${Number(quote.quote.amountInUsd).toFixed(2)}</p>}
               </div>

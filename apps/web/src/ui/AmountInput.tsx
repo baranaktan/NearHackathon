@@ -1,6 +1,6 @@
 import { forwardRef, type InputHTMLAttributes } from 'react';
 import { cn } from '../lib/cn';
-import { sanitizeAmountInput } from '../lib/near-format';
+import { acceptAmountInput } from '../lib/near-format';
 import { controlClasses } from './control-styles';
 
 export interface AmountInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'size'> {
@@ -29,7 +29,7 @@ export const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(functi
         spellCheck={false}
         placeholder="0.00"
         value={value}
-        onChange={(e) => onValueChange(sanitizeAmountInput(e.target.value))}
+        onChange={(e) => onValueChange(acceptAmountInput(e.target.value, value))}
         className={cn(
           controlClasses,
           'num font-mono tracking-tight',

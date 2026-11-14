@@ -18,3 +18,12 @@ submission-payload.json
 .vercel/
 *.tsbuildinfo
 .cache/
+# demo video recorder: build output, raw takes, review frames, take states (hold throwaway testnet keys)
+scripts/video/.build/
+scripts/video/.state/
+# e2e: isolated production build, Playwright outputs, Lighthouse scratch
+e2e/.app-dist/
+e2e/.app-dist-testnet/
+e2e/test-results/
+e2e/playwright-report/
+e2e/.lighthouse/
