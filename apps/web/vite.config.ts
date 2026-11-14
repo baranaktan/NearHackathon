@@ -1,7 +1,16 @@
 /// <reference types="vitest/config" />
+import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+
+/**
+ * `@perde/core` is consumed from source (packages/core/src): one build, no
+ * stale dist, and its own dependencies (@noble/*, @scure/*) resolve from
+ * packages/core/node_modules, which `npm run setup` installs.
+ */
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+const coreEntry = fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url));
 
 /**
  * Preload the two faces that render above the fold (Geist for UI, Instrument
@@ -26,6 +35,13 @@ function preloadFonts(patterns: RegExp[]): Plugin {
 
 export default defineConfig({
   base: './',
+  resolve: {
+    alias: { '@perde/core': coreEntry },
+  },
+  server: {
+    // Let the dev server read packages/core/src and its node_modules.
+    fs: { allow: [repoRoot] },
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -41,6 +57,7 @@ export default defineConfig({
           if (!id.includes('node_modules')) return undefined;
           if (/[/\\](react|react-dom|scheduler)[/\\]/.test(id)) return 'react';
           if (id.includes('react-router')) return 'router';
+          if (/[/\\]@(noble|scure)[/\\]/.test(id)) return 'crypto';
           return undefined;
         },
       },

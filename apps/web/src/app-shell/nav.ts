@@ -1,4 +1,4 @@
-import { ArrowDownToLine, BadgeCheck, FileText, FlaskConical, Inbox, ScanEye, Send, Users, type LucideIcon } from 'lucide-react';
+import { ArrowDownToLine, BadgeCheck, FileText, FlaskConical, Inbox, Landmark, ListChecks, ScanEye, Send, Users, type LucideIcon } from 'lucide-react';
 
 export interface NavItem {
   to: string;
@@ -8,7 +8,15 @@ export interface NavItem {
   description: string;
 }
 
+/*
+ * Groups render in order in the sidebar and in the mobile "More" sheet; the
+ * layouts handle any number of items.
+ */
 export const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
+  {
+    label: 'Start',
+    items: [{ to: '/app/start', label: 'Guided demo', short: 'Demo', icon: ListChecks, description: 'See it work in a minute' }],
+  },
   {
     label: 'Payments',
     items: [
@@ -22,6 +30,7 @@ export const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { to: '/app/invoice', label: 'Invoice', icon: FileText, description: 'One-time address, any chain' },
       { to: '/app/payroll', label: 'Payroll', icon: Users, description: 'Many payments, one transaction' },
+      { to: '/app/dao', label: 'DAO payout', short: 'DAO', icon: Landmark, description: 'Treasury pays without naming anyone' },
     ],
   },
   {
@@ -38,7 +47,7 @@ export const SETTINGS_ITEM: NavItem = {
   label: 'Settings & demo',
   short: 'Settings',
   icon: FlaskConical,
-  description: 'Testnet accounts, network',
+  description: 'Demo wallet, network, reset',
 };
 
 /** Shown in the mobile tab bar; everything else lives under "More". */

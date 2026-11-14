@@ -1,14 +1,15 @@
-import { Suspense, useEffect, useState } from 'react';
+﻿import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
 import { ArrowLeft, MoreHorizontal } from 'lucide-react';
 import { cn } from '../lib/cn';
-import { Logo } from '../brand/Logo';
+import { Logo, LogoMark } from '../brand/Logo';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { WalletWidget } from '../components/wallet/WalletWidget';
+import { DemoCoachCard, DemoCoachPill } from '../features/demo/DemoCoach';
 import { Sheet } from '../ui/Dialog';
 import { Skeleton } from '../ui/Feedback';
 import { NetworkBadge } from './NetworkBadge';
 import { ALL_ITEMS, NAV_GROUPS, PRIMARY_MOBILE, SETTINGS_ITEM, type NavItem } from './nav';
-import { PreviewBanner } from '../preview-fixtures/PreviewBanner';
 
 function SideLink({ item }: { item: NavItem }) {
   const Icon = item.icon;
@@ -36,45 +37,52 @@ function SideLink({ item }: { item: NavItem }) {
 function Sidebar() {
   return (
     <div className="hidden w-[248px] shrink-0 border-r border-line lg:block">
-    <aside className="sticky top-0 flex h-dvh flex-col">
-      <div className="flex h-16 items-center px-6">
-        <Link to="/" className="rounded-md text-fg" aria-label="Perde home">
-          <Logo size={24} accentMark />
-        </Link>
-      </div>
-      <nav aria-label="App" className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
-        {NAV_GROUPS.map((g) => (
-          <div key={g.label} className="mb-6">
-            <p className="mb-1.5 px-3 text-[10.5px] font-medium uppercase tracking-[0.16em] text-fg-faint">{g.label}</p>
-            <ul className="space-y-0.5">
-              {g.items.map((i) => (
-                <li key={i.to}>
-                  <SideLink item={i} />
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </nav>
-      <div className="space-y-3 border-t border-line px-3 py-4">
-        <SideLink item={SETTINGS_ITEM} />
-        <div className="flex items-center justify-between gap-2 pl-3">
-          <NetworkBadge />
-          <ThemeToggle />
+      <aside className="sticky top-0 flex h-dvh flex-col">
+        <div className="flex h-16 shrink-0 items-center px-6">
+          <Link to="/" className="rounded-md text-fg" aria-label="Perde home">
+            <Logo size={24} accentMark />
+          </Link>
         </div>
-      </div>
-    </aside>
+        <nav aria-label="App" className="flex-1 overflow-y-auto px-3 pb-4 pt-1">
+          {NAV_GROUPS.map((g) => (
+            <div key={g.label} className="mb-5">
+              <p className="mb-1.5 px-3 text-[10.5px] font-medium uppercase tracking-[0.16em] text-fg-faint">{g.label}</p>
+              <ul className="space-y-0.5">
+                {g.items.map((i) => (
+                  <li key={i.to}>
+                    <SideLink item={i} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          <DemoCoachCard />
+        </nav>
+        <div className="shrink-0 space-y-2.5 border-t border-line px-3 py-3.5">
+          <WalletWidget />
+          <SideLink item={SETTINGS_ITEM} />
+          <div className="flex items-center justify-between gap-2 pl-3">
+            <NetworkBadge />
+            <ThemeToggle />
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }
 
 function MobileTopBar() {
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-line bg-bg/90 px-4 backdrop-blur-md lg:hidden">
-      <Link to="/" className="rounded-md text-fg" aria-label="Perde home">
-        <Logo size={22} accentMark />
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-line bg-bg/90 px-4 backdrop-blur-md lg:hidden">
+      <Link to="/" className="shrink-0 rounded-md text-fg" aria-label="Perde home">
+        <LogoMark size={26} className="sm:hidden" />
+        <span className="hidden sm:block">
+          <Logo size={22} accentMark />
+        </span>
       </Link>
-      <div className="flex items-center gap-1">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <DemoCoachPill />
+        <WalletWidget compact />
         <NetworkBadge compact />
         <ThemeToggle />
       </div>
@@ -88,7 +96,6 @@ function MobileTabBar() {
   const primary = ALL_ITEMS.filter((i) => PRIMARY_MOBILE.includes(i.to));
   const rest = ALL_ITEMS.filter((i) => !PRIMARY_MOBILE.includes(i.to));
   const moreActive = rest.some((i) => pathname.startsWith(i.to));
-
 
   const tab = 'relative flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium';
   return (
@@ -194,12 +201,10 @@ export function AppLayout() {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <MobileTopBar />
-        <PreviewBanner />
         <main id="app-main" tabIndex={-1} className="flex-1 outline-none">
           <div className="mx-auto w-full max-w-[960px] px-4 pb-32 pt-8 sm:px-8 sm:pt-12 lg:pb-20">
             <Suspense fallback={<PageFallback />}>
-              {/* Keyed so switching preview states (?state=) remounts the page. */}
-              <div key={location.pathname + location.search}>
+              <div key={location.pathname}>
                 <Outlet />
               </div>
             </Suspense>

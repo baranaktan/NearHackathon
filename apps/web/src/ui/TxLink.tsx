@@ -9,7 +9,7 @@ export function TxLink({ hash, label = 'View transaction', className }: { hash: 
     <a
       href={explorerTxUrl(hash)}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener noreferrer"
       className={cn(
         'group inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-md text-[13px] text-fg underline decoration-line-strong underline-offset-4 hover:decoration-brass',
         className,

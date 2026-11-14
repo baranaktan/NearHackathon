@@ -1,60 +1,45 @@
-/**
- * Settings & demo data. PREVIEW IMPLEMENTATION — fixtures only. Replace with:
- * read deployments/testnet.json + `get_config`, create/fund demo accounts via
- * the testnet faucet helper, persist them locally; keep `SettingsModel`.
- */
-import { useState } from 'react';
-import type { DemoAccount, DemoRole, SettingsModel } from './types';
+import { useEffect, useState } from 'react';
+import type { PerdeConfig } from '@perde/core';
 import { APP_CONFIG } from '../../config';
-import { fx } from '../../preview-fixtures/data';
-import { previewDelay, usePreviewState } from '../../preview-fixtures/preview-state';
-
-const ready = (role: DemoRole): DemoAccount => ({
-  role,
-  accountId: role === 'sender' ? fx.senderAccount : fx.recipientAccount,
-  balanceYocto: role === 'sender' ? fx.NEAR('9.87') : fx.NEAR('10'),
-  status: 'ready',
-});
+import { useAppState } from '../../state/context';
+import { clearState } from '../../state/storage';
+import { getContractConfig } from '../../lib/perde';
+import { errorText } from '../../lib/errors';
+import type { SettingsModel } from './types';
 
 export function useSettings(): SettingsModel {
-  const preview = usePreviewState('/app/settings');
-  const [accounts, setAccounts] = useState<DemoAccount[]>(() => {
-    switch (preview) {
-      case 'missing':
-        return [
-          { role: 'sender', accountId: null, balanceYocto: null, status: 'missing' },
-          { role: 'recipient', accountId: null, balanceYocto: null, status: 'missing' },
-        ];
-      case 'funding':
-        return [{ ...ready('sender'), status: 'funding', balanceYocto: null }, ready('recipient')];
-      case 'error':
-        return [
-          { role: 'sender', accountId: null, balanceYocto: null, status: 'error', error: 'Faucet rate limit reached. Try again in a minute.' },
-          ready('recipient'),
-        ];
-      default:
-        return [ready('sender'), ready('recipient')];
-    }
-  });
+  const { state, dispatch, persisted } = useAppState();
+  const [config, setConfig] = useState<PerdeConfig | null>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    getContractConfig()
+      .then((c) => live && setConfig(c))
+      .catch((e: unknown) => live && setConfigError(errorText(e)));
+    return () => {
+      live = false;
+    };
+  }, []);
 
   return {
     network: {
-      networkId: 'testnet',
-      rpcUrl: APP_CONFIG.rpcUrl,
+      networkId: APP_CONFIG.networkId,
+      rpcUrls: APP_CONFIG.rpcUrls,
       explorerUrl: APP_CONFIG.explorerUrl,
-      contractId: fx.contractId,
-      contractVersion: '1.0.0',
+      contractId: APP_CONFIG.contractId,
+      contractVersion: config?.version ?? null,
+      announceFeeYocto: config?.announceFee.toString() ?? null,
+      minAmountYocto: config?.minAmount.toString() ?? null,
+      configError,
     },
-    demoAccounts: accounts,
-    fund(role) {
-      setAccounts((as) => as.map((a) => (a.role === role ? { ...a, status: 'funding', error: undefined } : a)));
-      void previewDelay(1500).then(() => setAccounts((as) => as.map((a) => (a.role === role ? ready(role) : a))));
-    },
+    hasWallet: state.wallet !== null,
+    persisted,
+    demoDismissed: state.demo.dismissed,
+    showDemo: () => dispatch({ type: 'demo/update', patch: { dismissed: false } }),
     resetAll() {
-      setAccounts([
-        { role: 'sender', accountId: null, balanceYocto: null, status: 'missing' },
-        { role: 'recipient', accountId: null, balanceYocto: null, status: 'missing' },
-      ]);
+      dispatch({ type: 'reset' });
+      clearState();
     },
   };
 }

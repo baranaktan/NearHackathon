@@ -66,7 +66,7 @@ export function AddressChip({
             <a
               href={explorerAccountUrl(value)}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               aria-label={`Open ${label ?? 'account'} on explorer (new tab)`}
               title="Open on testnet explorer"
               className="relative inline-flex size-8 items-center justify-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg after:absolute after:left-1/2 after:top-1/2 after:size-11 after:-translate-1/2 after:content-['']"

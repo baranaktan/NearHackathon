@@ -1,61 +1,67 @@
 # @perde/web
 
-Static SPA for **Perde — private payments on NEAR**. Vite + React 19 + TypeScript (strict), Tailwind CSS v4, `react-router` (HashRouter, so any static host works), `motion`, `lucide-react`, self-hosted fonts. No backend, no runtime requests to third-party CDNs.
+Static SPA for **Perde — private payments on NEAR**. Vite + React 19 + TypeScript (strict), Tailwind CSS v4, `react-router` (HashRouter, so any static host works), `motion`, `lucide-react`, self-hosted fonts. No backend: the browser talks directly to NEAR testnet RPC, the testnet faucet helper and NEAR Intents 1Click (all CORS-enabled). Every key is generated and used in the browser.
 
 ```bash
-npm install
+# from the repo root (installs and builds packages/core, then this app)
+npm run setup
 npm run dev          # local dev server
+npm run build        # core + web
+
+# inside apps/web
 npm run lint         # ESLint (typescript-eslint strict + react-hooks), zero warnings
-npm run typecheck    # tsc -b
-npm test             # Vitest + Testing Library (jsdom)
+npm run typecheck    # tsc -b (also type-checks the core sources it imports)
+npm test             # Vitest + Testing Library (jsdom), offline
 npm run build        # dist/ (relative base, deployable anywhere)
-npm run screenshots  # build, serve on a free port, capture every route × viewport × theme into screenshots/
+npm run screenshots  # build, serve, capture every route × viewport × theme (fresh state) into screenshots/
+node scripts/e2e-smoke.mjs   # real testnet end-to-end run in Chromium (see below)
 node scripts/render-og.mjs   # regenerate public/og.svg + public/og.png
 ```
 
-`npx playwright install chromium` is needed once for the screenshot and OG scripts. `screenshots/` is git-ignored; regenerate it when you need it.
+`npx playwright install chromium` is needed once for the screenshot, e2e and OG scripts. `screenshots/` is git-ignored.
+
+## How core is consumed
+
+`@perde/core` is imported from source: a Vite alias and a TS `paths` entry point at `../../packages/core/src/index.ts`. Its own dependencies (`@noble/*`, `@scure/*`) resolve from `packages/core/node_modules`, which `npm run setup` installs. Core has no Node built-ins, so it bundles as-is (the `crypto` chunk is noble/scure).
 
 ## Layout
 
 ```
 src/
-  brand/            Logo (mark / wordmark / lockup), Drape (hero curtain SVG), drape geometry
-  styles/index.css  design tokens (CSS variables, dark + light), velvet / grain / dialog styles
-  ui/               component kit (see /kit route)
-  components/       app-level pieces: Ledger (explorer rows), ChainView sheet, Amount, ThemeToggle
-  landing/          landing page (hero + LedgerExhibit + sections)
+  config.ts         network, contract id, DAO id, RPC list (failover order), explorer links
+  lib/perde.ts      the shared PerdeClient / SputnikDao / 1Click client, retrying fetch, key derivation cache, gas bounds
+  lib/errors.ts     describeError(): any core/RPC/faucet/1Click error → one human sentence (+ retryable flag)
+  state/            persisted app state (see below) + React provider (wallet balance polling, derived identity)
+  flows/            plain async functions used by pages and the guided-demo runner: tx (sign → broadcast → confirm),
+                    send (single, batch, invoice transfer), scan (announcements, invoices, balances), wallet (faucet / import)
+  features/<name>/  types.ts (view model) · use<Name>.ts (hook) · <Name>Page.tsx (UI) · pure logic + tests
+  components/       ChainView sheet (real tx + announcement data), Ledger, wallet setup/card/widget, Amount
   app-shell/        AppLayout (sidebar / mobile tab bar), nav, PageHeader, NetworkBadge
-  features/<name>/  types.ts (view model) · use<Name>.ts (data hook) · <Name>Page.tsx (pure UI)
-  preview-fixtures/ PREVIEW ONLY: sample data, ?state= switcher, "Preview data" banner
-  lib/              near-format (bigint-safe amounts, ids), theme, clipboard, dates
+  landing/          landing page
+  ui/               component kit (see #/kit)
 ```
 
-Routes (hash-based): `#/` landing, `#/app/receive|send|inbox|invoice|payroll|audit|verify|settings`, `#/kit` component showcase. `#/app` redirects to Receive.
+Routes (hash-based): `#/` landing · `#/pay?to=…&amount=…&note=…` public pay page (meta-address or 64-hex invoice account; parameters validated strictly, the note is shown as untrusted plain text) · `#/app/start` guided demo · `#/app/receive|send|inbox|invoice|payroll|dao|audit|verify|settings` · `#/app/send?to=…&amount=…` prefill · `#/app/verify?r=<receipt>` verifies on open · `#/kit` component showcase.
 
-## Wiring the real logic (for the next agent)
+## State and storage
 
-Pages never compute anything chain-related themselves. Each page calls exactly one hook and renders the returned **view model**. To wire a feature:
+Everything lives in **one versioned localStorage key, `perde:state`** (`src/state/schema.ts`): the demo wallet (account id + secret key), the identity (12-word phrase, confirmed flag), invoices (index, amount, note, created), sent history (tx, stealth account, receipt, announcement index), claims, the scan cursor + matched announcements, and guided-demo flags. Loading is defensive (`migrate`): unknown versions or garbage give a fresh state, malformed records are dropped. Another tab's writes are adopted through the `storage` event. Settings → *Reset everything* wipes it.
 
-1. Rewrite the body of `src/features/<name>/use<Name>.ts` using `@perde/core` / RPC. Keep the return type (`<Name>Model` from `types.ts`). Adding fields is fine; the page uses only what is listed below.
-2. Drop its imports from `../../preview-fixtures/*`.
-3. When no hook imports from `src/preview-fixtures/` any more, delete that folder and remove `<PreviewBanner />` (and its import) from `src/app-shell/AppLayout.tsx`. `AppLayout` keys the outlet by `pathname + search`; you can key by `pathname` only once fixtures are gone.
+**Keys are stored unencrypted in this browser — testnet only.** The Settings page says so.
 
-All amounts are **yoctoNEAR decimal strings**. Use `parseNearToYocto` / `formatYocto` from `src/lib/near-format.ts` (BigInt, never floats). Explorer URLs come from `src/config.ts` (`explorerTxUrl`, `explorerAccountUrl`).
+Not persisted: live balances (re-read from chain), quotes, in-flight transaction states.
 
-Preview states: append `?state=<name>` to any app route (e.g. `#/app/inbox?state=empty`); the dashed banner at the top of the app lists them. The first one listed is the default.
+## Chain access
 
-| Route | Hook → model | UI states the page renders | Preview `?state=` |
-| --- | --- | --- | --- |
-| Receive | `useReceive()` → `ReceiveModel` | `identity.status`: `loading` (skeleton) · `none` (create / restore form; restore shows the error string `restoreIdentity` resolves with) · `created` (12 words behind the curtain + "I stored them" checkbox → `confirmSaved`) · `ready` (meta-address + copy + QR, registration card, viewing key behind a curtain, recovery / forget dialogs) · `error` (callout + start over). `registration.status`: `idle` · `pending` (button spinner) · `done` (badge + tx link) · `error` (callout). `signerAccountId: null` shows "No account to sign with". | none, created, ready, registered, loading, error |
-| Send | `useSend()` → `SendModel` | `phase`: `edit` (recipient field with `recipient.status` `empty`/`resolving`/`resolved`/`invalid`, amount with `amountError`, Max button from `sender.balanceYocto`, Review disabled until `canReview`) · `review` (quote rows: recipient, fresh stealth account, amount, fee, total) · `submitting` (timeline driven by `step`: `sign` → `broadcast` → `confirm`) · `success` (tx link, copyable receipt, Chain view) · `error` (callout, back / retry). `sender: null` shows "Set up demo accounts". | edit, review, submitting, success, error, no-sender |
-| Inbox | `useInbox()` → `InboxModel` | `hasIdentity: false` → empty state linking to Receive. `scan.status`: `scanning` (progress bar, skeleton rows, `total` may be null) · `done` (count + time) · `error` (callout + retry). Per payment `claim.status`: `unclaimed` (Claim to… → dialog with destination field, `destinationSuggestions`, `claimFeeYocto`, warning when claiming to a named account) · `claiming` · `claimed` (badge + tx link) · `error` (message + retry). Empty list after `done` → empty state. Chain view sheet uses the first claimed (else first) payment. | found, scanning, empty, error, no-identity |
-| Invoice | `useInvoice()` → `InvoiceModel` | `hasIdentity: false` → empty state. Create form (`creating` spinner). Invoice list (`select`). `current`: QR of `payLink`, one-time account, status `open`/`paid`. Any-chain panel: asset combobox (`assets`, `selectedAssetId`), `quote.status` `idle` · `loading` · `ready` (`amountInFormatted` → `amountOutFormatted`, ETA, quotedAt; always badged "Preview — dry quote") · `error`. | open, paid, quote-loading, quote-error, empty, no-identity |
-| Payroll | `usePayroll()` → `PayrollModel` | CSV textarea + file upload (`loadFile`). Rows come from `parsePayrollCsv` in `features/payroll/csv.ts` (pure, tested, keep it). `phase`: `input` (row list with per-row errors; Review blocked while `invalidCount > 0`) · `review` (totals, fees) · `submitting` · `done` (`results` per row: stealth account / failure, one tx link) · `error`. | input, review, submitting, done, error, empty |
-| Audit | `useAudit()` → `AuditModel` | Viewing-key field with `keyError`. `state.status`: `idle` · `scanning` (progress text + skeleton) · `done` (meta-address, total, table of entries with Held / Moved out; empty list → empty state) · `error`. | idle, scanning, done, empty, error |
-| Verify receipt | `useVerify()` → `VerifyModel` | Receipt field. `state.status`: `idle` · `verifying` (skeleton) · `verified` (summary + every check with its mono `detail`) · `failed` (`reason`, checks with pass/fail/skipped) · `invalid` (field error). | idle, verifying, verified, failed, invalid |
-| Settings & demo | `useSettings()` → `SettingsModel` | Per demo account `status`: `missing` (Create & fund) · `funding` (spinner, balance skeleton) · `ready` (account chip, balance, top up) · `error` (callout + retry). Network table from `network` (`contractId: null` → "Not deployed"). Reset dialog → `resetAll`. | ready, missing, funding, error |
+- RPC: `test.rpc.fastnear.com` → `rpc.testnet.near.org` → `near-testnet.drpc.org`, with core's failover plus a short backoff on 429/network errors (public RPCs rate-limit bursts and often omit CORS headers on 429).
+- Read-after-write: RPC nodes are load-balanced and can lag a block, so reads that follow a write poll with core's `pollUntil` (announcement after send, balance after a transaction, stealth account before claim, invoice balance after payment).
+- If a transaction was broadcast but not confirmed in time, the UI shows its hash and asks to check the explorer before retrying.
 
-Interfaces live in `src/features/*/types.ts`; read them for field-level docs.
+## End-to-end run (real testnet)
+
+`scripts/e2e-smoke.mjs` builds, starts `vite preview` on a free port, injects an existing funded testnet account into `perde:state` (no faucet call), and drives: create identity → send 0.05 NEAR to yourself → Inbox finds it → chain view → claim back → create a 0.5 NEAR invoice → pay it from `#/pay` → real 1Click dry quote → Inbox shows the invoice → payroll sample (2 payments, one transaction) → DAO payout (propose + approve) → Inbox finds it → Audit with the viewing key → Verify the receipt deep link → claim the invoice back. It prints every transaction link, counts console errors/warnings and horizontal overflow, and saves screenshots (desktop 1440×900 and mobile 390×844, dark, plus light captures) and `e2e-summary.json` into `screenshots/wired/`.
+
+The account comes from `PERDE_FUNDER_JSON` (a JSON file `{accountId, secretKey}`), defaulting to the throwaway key core's testnet tests cache in `packages/core/node_modules/.cache/perde-testnet/funder.json`. The key is never printed.
 
 ## Design system
 
@@ -73,7 +79,7 @@ Interfaces live in `src/features/*/types.ts`; read them for field-level docs.
   | `success` / `warn` / `danger` | `#8cc59f` / `#e2b04a` / `#f2785c` | `#2d6a45` / `#855700` / `#a5331a` |
 
   Text tokens meet WCAG AA on `bg`, `surface` and `surface-2` in both themes.
-- **Type:** Instrument Serif (display, incl. italic) · Geist Variable (UI) · Geist Mono Variable (addresses, hashes, amounts; tabular numerals via `.num`). Self-hosted via Fontsource, `font-display: swap`; the two above-the-fold faces are preloaded by a small Vite plugin in `vite.config.ts`.
+- **Type:** Instrument Serif (display) · Geist Variable (UI) · Geist Mono Variable (addresses, hashes, amounts; tabular numerals via `.num`). Self-hosted via Fontsource; the two above-the-fold faces are preloaded by a small Vite plugin.
 - **Theme:** dark by default, light via the toggle or `prefers-color-scheme`; an inline script in `index.html` sets `data-theme` before first paint.
 - **Motion:** `LazyMotion` loads animation features after first paint; `MotionConfig reducedMotion="user"` plus CSS media queries honour `prefers-reduced-motion`.
-- **Accessibility:** native `<dialog>` for Dialog / Sheet (inert background, Esc, focus return), roving-tabindex Tabs, ARIA 1.2 Combobox, labelled fields with described-by hints and errors, 44px touch targets, visible brass focus rings, skip links.
+- **Accessibility:** native `<dialog>` for Dialog / Sheet (inert background, Esc, focus return), roving-tabindex Tabs, ARIA 1.2 Combobox (with group headings), labelled fields with described-by hints and errors, 44px touch targets, visible brass focus rings, skip links. External links open in a new tab with `rel="noopener noreferrer"`.

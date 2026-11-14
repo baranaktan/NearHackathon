@@ -1,47 +1,54 @@
 /**
- * Verify-receipt data. PREVIEW IMPLEMENTATION — fixtures only. Replace with:
- * parse "perdereceipt:", recompute R = r·G and P from the meta-address, find
- * the announcement and tx status over RPC; keep `VerifyModel`.
+ * Verify a receipt: recompute R and P from the meta-address and r, find the
+ * announcement on-chain, compare. Accepts `#/app/verify?r=<receipt>`.
  */
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router';
+import { APP_CONFIG } from '../../config';
+import { perde } from '../../lib/perde';
+import { errorText } from '../../lib/errors';
+import { buildVerification, parseReceipt } from './logic';
 import type { VerifyModel, VerifyState } from './types';
-import { fxChecks, fxReceipt, fxReceiptSummary } from '../../preview-fixtures/data';
-import { previewDelay, usePreviewState } from '../../preview-fixtures/preview-state';
 
 export function useVerify(): VerifyModel {
-  const preview = usePreviewState('/app/verify');
-  const [input, setInput] = useState(preview === 'idle' ? '' : preview === 'invalid' ? 'perdereceipt:not-a-receipt' : fxReceipt);
-  const [state, setState] = useState<VerifyState>(() =>
-    preview === 'verifying'
-      ? { status: 'verifying' }
-      : preview === 'verified'
-        ? { status: 'verified', summary: fxReceiptSummary, checks: fxChecks() }
-        : preview === 'failed'
-          ? {
-              status: 'failed',
-              summary: fxReceiptSummary,
-              reason: 'The stealth account in this receipt does not derive from the stated meta-address.',
-              checks: fxChecks(true),
-            }
-          : preview === 'invalid'
-            ? { status: 'invalid', message: 'This is not a Perde receipt: the payload is not valid base64url JSON.' }
-            : { status: 'idle' },
-  );
+  const [params] = useSearchParams();
+  const fromLink = params.get('r');
+  const [input, setInput] = useState(fromLink ?? '');
+  const [state, setState] = useState<VerifyState>({ status: 'idle' });
+  const runId = useRef(0);
+
+  const verify = useCallback(async (text: string) => {
+    const v = text.trim();
+    const parsed = parseReceipt(v);
+    if (!parsed.ok) {
+      setState({ status: 'invalid', message: v.startsWith('perdereceipt:') ? parsed.message : 'A receipt starts with “perdereceipt:”.' });
+      return;
+    }
+    const id = ++runId.current;
+    setState({ status: 'verifying' });
+    try {
+      const [onChain, count] = await Promise.all([perde.verifyReceipt(v), perde.announcementCount()]);
+      if (id !== runId.current) return;
+      setState(buildVerification(v, { contractId: APP_CONFIG.contractId, announcementCount: count, announcement: onChain.announcement, balanceYocto: onChain.balance ?? 0n }));
+    } catch (e) {
+      if (id === runId.current) setState({ status: 'error', message: errorText(e, 'verify') });
+    }
+  }, []);
+
+  // Deep link: verify immediately.
+  useEffect(() => {
+    if (!fromLink) return;
+    const t = window.setTimeout(() => void verify(fromLink), 0);
+    return () => window.clearTimeout(t);
+  }, [fromLink, verify]);
 
   return {
     input,
     setInput,
     state,
-    verify() {
-      const v = input.trim();
-      if (!v.startsWith('perdereceipt:')) {
-        setState({ status: 'invalid', message: 'A receipt starts with “perdereceipt:”.' });
-        return;
-      }
-      setState({ status: 'verifying' });
-      void previewDelay(1200).then(() => setState({ status: 'verified', summary: fxReceiptSummary, checks: fxChecks() }));
-    },
+    verify: () => void verify(input),
     clear() {
+      runId.current++;
       setInput('');
       setState({ status: 'idle' });
     },

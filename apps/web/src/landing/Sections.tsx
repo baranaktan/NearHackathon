@@ -161,6 +161,56 @@ export function WhyNear() {
   );
 }
 
+/* --------------------------------- Use cases --------------------------------- */
+
+const cases: Array<{ title: string; body: string; to: string; cta: string; secondary?: { to: string; cta: string } }> = [
+  {
+    title: 'Private payroll from a DAO or a team',
+    body: 'Pay many contributors in one transaction from a team account, or let a SputnikDAO vote on a payout. The proposal and the batch show the amounts; none of them names a recipient.',
+    to: '/app/payroll',
+    cta: 'Run payroll',
+    secondary: { to: '/app/dao', cta: 'Pay from a DAO' },
+  },
+  {
+    title: 'Invoices payable from any chain',
+    body: 'Each invoice is a one-time account derived from your view key. Any NEAR wallet can pay it with a plain transfer, and NEAR Intents can quote a swap into it from other chains (dry-run preview in this build).',
+    to: '/app/invoice',
+    cta: 'Create an invoice',
+  },
+  {
+    title: 'Auditor access with a viewing key',
+    body: 'Hand an accountant your viewing key: they see every incoming payment and whether it is still held. The key cannot sign, claim or spend anything.',
+    to: '/app/audit',
+    cta: 'Open the audit view',
+  },
+];
+
+export function UseCases() {
+  return (
+    <Shell id="use-cases" labelledBy="cases-title" className="border-t border-line">
+      <SectionHeading id="cases-title" eyebrow="Use cases" title="Built for paying people, not hiding from them." />
+      <ul className="mt-14 grid gap-5 lg:grid-cols-3">
+        {cases.map((c) => (
+          <li key={c.title} className="flex min-w-0 flex-col rounded-xl border border-line bg-surface p-7">
+            <h3 className="text-display text-[28px] leading-tight text-fg">{c.title}</h3>
+            <p className="mt-4 flex-1 text-[15px] leading-relaxed text-fg-muted">{c.body}</p>
+            <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2">
+              <ButtonLink to={c.to} variant="quiet" size="sm" iconRight={<ArrowRight aria-hidden className="size-3.5" />}>
+                {c.cta}
+              </ButtonLink>
+              {c.secondary && (
+                <ButtonLink to={c.secondary.to} variant="quiet" size="sm" iconRight={<ArrowRight aria-hidden className="size-3.5" />}>
+                  {c.secondary.cta}
+                </ButtonLink>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Shell>
+  );
+}
+
 /* ------------------------------ Privacy, honestly ----------------------------- */
 
 const hidden = [
@@ -242,8 +292,8 @@ export function ClosingCta() {
             The demo creates throwaway testnet accounts in your browser. No wallet, no sign-up, nothing to install.
           </p>
         </div>
-        <ButtonLink to="/app" size="lg" iconRight={<ArrowRight aria-hidden className="size-4" />} className="max-sm:w-full">
-          Try the live demo
+        <ButtonLink to="/app/start" size="lg" iconRight={<ArrowRight aria-hidden className="size-4" />} className="max-sm:w-full">
+          Start the guided demo
         </ButtonLink>
       </div>
     </section>
@@ -268,7 +318,7 @@ export function SiteFooter({ githubUrl = APP_CONFIG.githubUrl }: { githubUrl?: s
           </li>
           {githubUrl && (
             <li>
-              <a href={githubUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center underline decoration-line-strong underline-offset-4 hover:text-fg hover:decoration-brass">
+              <a href={githubUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-9 items-center underline decoration-line-strong underline-offset-4 hover:text-fg hover:decoration-brass">
                 Source on GitHub
               </a>
             </li>

@@ -1,8 +1,8 @@
 /**
  * Visual QA: builds the app, serves dist/ on a free local port, and saves
  * full-page PNGs of every route × {desktop, mobile} × {dark, light} into
- * screenshots/. Extra captures cover every preview state and the in-between
- * widths. The server is always stopped at the end.
+ * screenshots/ (fresh browser state: no wallet, no identity). For the wired,
+ * on-chain flows see scripts/e2e-smoke.mjs. The server is always stopped at the end.
  *
  *   node scripts/screenshots.mjs            # build + capture
  *   node scripts/screenshots.mjs --no-build # reuse dist/
@@ -62,27 +62,19 @@ const VIEWPORTS = {
 
 const ROUTES = [
   ['landing', '/'],
-  ['receive', '/app/receive?state=ready'],
+  ['start', '/app/start'],
+  ['receive', '/app/receive'],
   ['send', '/app/send'],
   ['inbox', '/app/inbox'],
   ['invoice', '/app/invoice'],
   ['payroll', '/app/payroll'],
-  ['audit', '/app/audit?state=done'],
-  ['verify', '/app/verify?state=verified'],
+  ['dao', '/app/dao'],
+  ['audit', '/app/audit'],
+  ['verify', '/app/verify'],
   ['settings', '/app/settings'],
+  ['pay-invalid', '/pay?to=nobody'],
   ['kit', '/kit'],
 ];
-
-const STATES = {
-  receive: ['none', 'created', 'registered', 'loading', 'error'],
-  send: ['review', 'submitting', 'success', 'error', 'no-sender'],
-  inbox: ['scanning', 'empty', 'error', 'no-identity'],
-  invoice: ['paid', 'quote-loading', 'quote-error', 'empty'],
-  payroll: ['review', 'submitting', 'done', 'error', 'empty'],
-  audit: ['idle', 'scanning', 'empty', 'error'],
-  verify: ['idle', 'verifying', 'failed', 'invalid'],
-  settings: ['missing', 'funding', 'error'],
-};
 
 const browser = await chromium.launch();
 let count = 0;
@@ -128,30 +120,7 @@ try {
     }
     for (const viewport of ['tablet', 'small']) await capture({ name: 'landing', path: '/', viewport, theme: 'dark' });
   }
-  for (const [name, states] of Object.entries(STATES)) {
-    if (only && !only.includes(name)) continue;
-    for (const s of states) await capture({ name: `${name}-${s}`, path: `/app/${name}?state=${s}`, viewport: 'desktop', theme: 'dark' });
-    for (const s of states.slice(0, 2)) await capture({ name: `${name}-${s}`, path: `/app/${name}?state=${s}`, viewport: 'small', theme: 'light' });
-    await capture({ name, path: `/app/${name}`, viewport: 'tablet', theme: 'dark' });
-  }
   if (!only || only.includes('overlays')) {
-    await capture({
-      name: 'send-chainview',
-      path: '/app/send?state=success',
-      viewport: 'desktop',
-      theme: 'dark',
-      setup: (p) => p.getByRole('button', { name: 'Chain view' }).click(),
-    });
-    await capture({
-      name: 'inbox-claim',
-      path: '/app/inbox',
-      viewport: 'mobile',
-      theme: 'dark',
-      setup: async (p) => {
-        await p.getByRole('button', { name: 'Claim to…' }).first().click();
-        await p.getByRole('button', { name: /perde-demo-alice/ }).click();
-      },
-    });
     await capture({ name: 'mobile-more', path: '/app/inbox', viewport: 'mobile', theme: 'light', setup: (p) => p.getByRole('button', { name: 'More' }).click() });
   }
 } finally {

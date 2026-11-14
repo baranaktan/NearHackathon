@@ -21,7 +21,12 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
     "noUncheckedSideEffectImports": true,
-    "exactOptionalPropertyTypes": false
+    "exactOptionalPropertyTypes": false,
+    "resolveJsonModule": true,
+
+    "paths": {
+      "@perde/core": ["../../packages/core/src/index.ts"]
+    }
   },
   "include": ["src"]
 }

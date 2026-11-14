@@ -8,6 +8,7 @@ import { SectionLink } from './SectionLink';
 const links = [
   { target: 'how', label: 'How it works' },
   { target: 'why-near', label: 'Why NEAR' },
+  { target: 'use-cases', label: 'Use cases' },
   { target: 'privacy', label: 'What’s private' },
 ];
 

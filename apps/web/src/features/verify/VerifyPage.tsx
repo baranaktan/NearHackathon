@@ -1,4 +1,4 @@
-import { CircleCheck, CircleMinus, CircleX, ShieldCheck, ShieldX } from 'lucide-react';
+import { CircleCheck, CircleMinus, CircleX, Info, ShieldCheck, ShieldX } from 'lucide-react';
 import { m } from 'motion/react';
 import { PageHeader } from '../../app-shell/PageHeader';
 import { Card, DataRow } from '../../ui/Card';
@@ -71,6 +71,11 @@ export default function VerifyPage() {
             </div>
           </Card>
         )}
+        {s.status === 'error' && (
+          <Callout tone="danger" role="alert" title="Couldn’t read the chain" action={<Button size="sm" variant="secondary" onClick={m.verify}>Try again</Button>}>
+            {s.message}
+          </Callout>
+        )}
         {s.status === 'verified' && <Result ok summary={s.summary} checks={s.checks} />}
         {s.status === 'failed' && <Result ok={false} summary={s.summary} checks={s.checks} reason={s.reason} />}
       </div>
@@ -89,7 +94,7 @@ function Result({ ok, summary, checks, reason }: { ok: boolean; summary: Receipt
             <h2 className="text-display text-[32px] text-fg sm:text-[36px]">{ok ? 'Verified payment' : 'Receipt does not check out'}</h2>
             <p className="mt-1.5 text-[14.5px] text-fg-muted">
               {ok
-                ? 'This payment went to an account derived from the meta-address below, and it is on-chain.'
+                ? 'This payment went to an account derived from the meta-address below, and its announcement is on-chain.'
                 : reason}
             </p>
           </div>
@@ -121,12 +126,15 @@ function Result({ ok, summary, checks, reason }: { ok: boolean; summary: Receipt
           <h3 className="mb-3 text-[11px] font-medium uppercase tracking-[0.16em] text-fg-faint">What was checked</h3>
           <ul className="space-y-3">
             {checks.map((c) => {
-              const CIcon = c.status === 'pass' ? CircleCheck : c.status === 'fail' ? CircleX : CircleMinus;
+              const CIcon = c.status === 'pass' ? CircleCheck : c.status === 'fail' ? CircleX : c.status === 'info' ? Info : CircleMinus;
               return (
                 <li key={c.id} className="flex items-start gap-3">
                   <CIcon
                     aria-hidden
-                    className={cn('mt-0.5 size-4 shrink-0', c.status === 'pass' ? 'text-success' : c.status === 'fail' ? 'text-danger' : 'text-fg-faint')}
+                    className={cn(
+                      'mt-0.5 size-4 shrink-0',
+                      c.status === 'pass' ? 'text-success' : c.status === 'fail' ? 'text-danger' : c.status === 'info' ? 'text-brass' : 'text-fg-faint',
+                    )}
                   />
                   <div className="min-w-0">
                     <p className={cn('text-[14px]', c.status === 'skipped' ? 'text-fg-muted' : 'text-fg')}>

@@ -1,21 +1,31 @@
 import { useState } from 'react';
-import { ArrowDownToLine, ArrowRight, Clock } from 'lucide-react';
+import { ArrowDownToLine, ExternalLink, RefreshCw } from 'lucide-react';
 import { PageHeader } from '../../app-shell/PageHeader';
 import { Card, CardHeader } from '../../ui/Card';
 import { Button, ButtonLink } from '../../ui/Button';
-import { Badge } from '../../ui/Badge';
+import { Badge, type BadgeTone } from '../../ui/Badge';
 import { Field, Input } from '../../ui/Field';
 import { AmountInput } from '../../ui/AmountInput';
 import { AddressChip } from '../../ui/AddressChip';
-import { Callout, EmptyState, Skeleton } from '../../ui/Feedback';
+import { Callout, EmptyState } from '../../ui/Feedback';
 import { CopyButton } from '../../ui/CopyButton';
 import { QR } from '../../ui/QR';
-import { Combobox } from '../../ui/Combobox';
+import { TxLink } from '../../ui/TxLink';
 import { Amount } from '../../components/Amount';
 import { cn } from '../../lib/cn';
 import { formatDateTime } from '../../lib/format-date';
+import { AnyChainPanel } from '../anychain/AnyChainPanel';
+import { NOTE_MAX } from '../pay/params';
 import { useInvoice } from './useInvoice';
-import type { Invoice, InvoiceModel } from './types';
+import type { Invoice, InvoiceModel, InvoiceStatus } from './types';
+
+const STATUS: Record<InvoiceStatus, { label: string; tone: BadgeTone }> = {
+  checking: { label: 'Checking…', tone: 'neutral' },
+  open: { label: 'Waiting for payment', tone: 'neutral' },
+  partial: { label: 'Partly paid', tone: 'warn' },
+  paid: { label: 'Paid', tone: 'success' },
+  claimed: { label: 'Paid · claimed', tone: 'success' },
+};
 
 export default function InvoicePage() {
   const m = useInvoice();
@@ -39,10 +49,15 @@ export default function InvoicePage() {
             {m.invoices.length > 0 && <InvoiceList m={m} />}
           </div>
           <div className="min-w-0 space-y-5">
+            {m.balanceError && (
+              <Callout tone="warn" role="alert" action={<Button size="sm" variant="secondary" onClick={m.refresh}>Retry</Button>}>
+                Couldn’t read invoice balances: {m.balanceError}
+              </Callout>
+            )}
             {m.current ? (
               <>
-                <InvoiceDetail inv={m.current} />
-                <AnyChain m={m} />
+                <InvoiceDetail inv={m.current} onRefresh={m.refresh} />
+                <AnyChainPanel key={m.current.index} stealthAccountId={m.current.stealthAccount} amountYocto={m.current.amountYocto} />
               </>
             ) : (
               <Card tone="outline">
@@ -59,6 +74,7 @@ export default function InvoicePage() {
 function CreateForm({ m }: { m: InvoiceModel }) {
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
+  const [error, setError] = useState<string | null>(null);
   return (
     <Card>
       <CardHeader title="New invoice" className="mb-4" />
@@ -66,18 +82,21 @@ function CreateForm({ m }: { m: InvoiceModel }) {
         className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
-          m.create({ amount, memo });
-          setAmount('');
-          setMemo('');
+          const err = m.create({ amount, memo });
+          setError(err);
+          if (!err) {
+            setAmount('');
+            setMemo('');
+          }
         }}
       >
-        <Field label="Amount" optional hint="Leave empty to accept any amount.">
+        <Field label="Amount" optional hint="Leave empty to accept any amount." error={error}>
           {(p) => <AmountInput {...p} value={amount} onValueChange={setAmount} />}
         </Field>
-        <Field label="Note for you" optional hint="Stored only in this browser.">
-          {(p) => <Input {...p} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="e.g. November retainer" maxLength={80} />}
+        <Field label="Note" optional hint="Part of the pay link, so the payer sees it. Never written on-chain.">
+          {(p) => <Input {...p} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="e.g. November retainer" maxLength={NOTE_MAX} />}
         </Field>
-        <Button type="submit" loading={m.creating} loadingLabel="Creating invoice" full>
+        <Button type="submit" full>
           Create invoice
         </Button>
       </form>
@@ -92,6 +111,7 @@ function InvoiceList({ m }: { m: InvoiceModel }) {
       <ul>
         {m.invoices.map((inv) => {
           const active = m.current?.index === inv.index;
+          const s = STATUS[inv.status];
           return (
             <li key={inv.index} className="border-t border-line first:border-t-0">
               <button
@@ -105,8 +125,8 @@ function InvoiceList({ m }: { m: InvoiceModel }) {
                   <span className="block truncate text-[14px] text-fg">{inv.memo || 'Untitled'}</span>
                   <span className="block text-[12px] text-fg-faint">{formatDateTime(inv.createdAtMs)}</span>
                 </span>
-                <Badge tone={inv.status === 'paid' ? 'success' : 'neutral'} dot>
-                  {inv.status === 'paid' ? 'Paid' : 'Open'}
+                <Badge tone={s.tone} dot>
+                  {inv.status === 'open' ? 'Open' : s.label}
                 </Badge>
               </button>
             </li>
@@ -117,40 +137,49 @@ function InvoiceList({ m }: { m: InvoiceModel }) {
   );
 }
 
-function InvoiceDetail({ inv }: { inv: Invoice }) {
+function InvoiceDetail({ inv, onRefresh }: { inv: Invoice; onRefresh: () => void }) {
+  const s = STATUS[inv.status];
   return (
     <Card padded={false} className="overflow-hidden">
       <div className="grid md:grid-cols-[minmax(0,1fr)_auto]">
         <div className="min-w-0 p-5 sm:p-6">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-brass-text">Invoice #{inv.index}</p>
-            <Badge tone={inv.status === 'paid' ? 'success' : 'neutral'} dot pulse={inv.status === 'open'}>
-              {inv.status === 'paid' ? 'Paid' : 'Waiting for payment'}
+            <Badge tone={s.tone} dot pulse={inv.status === 'open'}>
+              {s.label}
             </Badge>
+            <button
+              type="button"
+              onClick={onRefresh}
+              aria-label="Check the balance now"
+              title="Check the balance now"
+              className="inline-flex size-8 items-center justify-center rounded-md text-fg-faint hover:bg-surface-3 hover:text-fg"
+            >
+              <RefreshCw aria-hidden className="size-3.5" />
+            </button>
           </div>
-          <h2 className="mt-3 text-display text-[30px] text-fg">{inv.memo || 'Untitled invoice'}</h2>
-          <div className="mt-3">
-            {inv.amountYocto ? <Amount yocto={inv.amountYocto} size="lg" /> : <span className="text-[14px] text-fg-muted">Any amount</span>}
-          </div>
-          {inv.status === 'paid' && (
-            <p className="mt-2 text-[13.5px] text-success">
-              Received <Amount yocto={inv.receivedYocto} size="sm" /> — claim it from your Inbox.
+          <h2 className="mt-3 break-words text-display text-[30px] text-fg">{inv.memo || 'Untitled invoice'}</h2>
+          <div className="mt-3">{inv.amountYocto ? <Amount yocto={inv.amountYocto} size="lg" /> : <span className="text-[14px] text-fg-muted">Any amount</span>}</div>
+          {(inv.status === 'paid' || inv.status === 'partial') && inv.receivedYocto && (
+            <p className={cn('mt-2 text-[13.5px]', inv.status === 'paid' ? 'text-success' : 'text-warn')}>
+              Holds <Amount yocto={inv.receivedYocto} size="sm" /> — claim it from your{' '}
+              <ButtonLink to="/app/inbox" variant="quiet" size="sm" className="h-auto! align-baseline">
+                Inbox
+              </ButtonLink>
+              .
             </p>
           )}
+          {inv.status === 'claimed' && inv.claimTxHash && (
+            <p className="mt-2 flex flex-wrap items-center gap-2 text-[13.5px] text-success">
+              Claimed <Amount yocto={inv.receivedYocto ?? '0'} size="sm" /> <TxLink hash={inv.claimTxHash} label="" />
+            </p>
+          )}
+          {inv.status === 'open' && <p className="mt-2 text-[12.5px] text-fg-faint">Checking the balance every few seconds while this page is open.</p>}
           <dl className="mt-6 space-y-4">
             <div>
               <dt className="mb-1.5 text-[12.5px] text-fg-muted">Pay to this one-time account</dt>
               <dd>
                 <AddressChip value={inv.stealthAccount} explorer label="Invoice account" />
-              </dd>
-            </div>
-            <div>
-              <dt className="mb-1.5 text-[12.5px] text-fg-muted">Pay link</dt>
-              <dd className="flex min-w-0 items-center gap-1 rounded-md border border-line bg-surface-2/70 py-1 pl-3 pr-1">
-                <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-fg" title={inv.payLink}>
-                  {inv.payLink}
-                </span>
-                <CopyButton value={inv.payLink} label="Copy pay link" />
               </dd>
             </div>
           </dl>
@@ -159,86 +188,24 @@ function InvoiceDetail({ inv }: { inv: Invoice }) {
           <QR value={inv.payLink} size={156} label={`QR code for invoice ${inv.index}`} caption="Scan to open the pay link" />
         </div>
       </div>
-    </Card>
-  );
-}
-
-function AnyChain({ m }: { m: InvoiceModel }) {
-  const q = m.quote;
-  const asset = m.assets.find((a) => a.id === m.selectedAssetId) ?? null;
-  return (
-    <Card>
-      <CardHeader
-        title="Pay from any chain"
-        description="NEAR Intents can swap from another chain straight into this invoice account. Pick what the payer holds to see a quote."
-        actions={<Badge tone="warn">Preview — dry quote</Badge>}
-      />
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <Field label="Payer sends" className="flex-1">
-          {(p) => (
-            <Combobox
-              {...p}
-              options={m.assets.map((a) => ({
-                value: a.id,
-                label: a.symbol,
-                detail: a.chain,
-                leading: (
-                  <span aria-hidden className="flex size-6 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface-3 font-mono text-[9px] text-fg-muted">
-                    {a.symbol.slice(0, 3)}
-                  </span>
-                ),
-              }))}
-              value={m.selectedAssetId}
-              onChange={m.selectAsset}
-              placeholder="Search asset or chain"
-            />
-          )}
-        </Field>
-        <Button variant="secondary" onClick={m.requestQuote} loading={q.status === 'loading'} loadingLabel="Fetching quote" disabled={!m.selectedAssetId}>
-          Get quote
-        </Button>
-      </div>
-
-      <div className="mt-5 min-h-[104px]" aria-live="polite">
-        {q.status === 'idle' && <p className="pt-2 text-[13.5px] text-fg-faint">No quote requested. Quotes are dry runs: nothing is signed or sent.</p>}
-        {q.status === 'loading' && (
-          <div className="grid gap-3 rounded-lg border border-line p-4 sm:grid-cols-3" aria-label="Loading quote">
-            <Skeleton className="h-12" />
-            <Skeleton className="h-12" />
-            <Skeleton className="h-12" />
-          </div>
-        )}
-        {q.status === 'error' && (
-          <Callout tone="danger" title="No quote for this route" role="alert">
-            {q.message}
-          </Callout>
-        )}
-        {q.status === 'ready' && (
-          <div className="rounded-lg border border-line bg-surface-2/50">
-            <div className="grid items-center gap-4 p-4 sm:grid-cols-[1fr_auto_1fr] sm:p-5">
-              <div className="min-w-0">
-                <p className="text-[12px] text-fg-muted">Payer sends about</p>
-                <p className="num mt-1 font-mono text-[22px] text-fg">
-                  {q.quote.amountInFormatted} <span className="text-[13px] text-fg-faint">{asset?.symbol} · {asset?.chain}</span>
-                </p>
-              </div>
-              <ArrowRight aria-hidden className="size-4 text-fg-faint max-sm:rotate-90" />
-              <div className="min-w-0 sm:text-right">
-                <p className="text-[12px] text-fg-muted">Invoice receives</p>
-                <p className="num mt-1 font-mono text-[22px] text-fg">
-                  {q.quote.amountOutFormatted} <span className="text-[13px] text-fg-faint">NEAR</span>
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-line px-4 py-3 text-[12.5px] text-fg-muted sm:px-5">
-              <span className="inline-flex items-center gap-1.5">
-                <Clock aria-hidden className="size-3.5" />~{q.quote.timeEstimateSec}s
-              </span>
-              <span>Quoted {formatDateTime(Date.parse(q.quote.quotedAt))}</span>
-              <span className="text-fg-faint">Dry run · mainnet route · not executed</span>
-            </div>
-          </div>
-        )}
+      <div className="border-t border-line px-5 py-4 sm:px-6">
+        <p className="mb-1.5 text-[12.5px] text-fg-muted">Pay link — anyone with it can pay from a testnet wallet or see a cross-chain quote</p>
+        <div className="flex min-w-0 items-center gap-1 rounded-md border border-line bg-surface-2/70 py-1 pl-3 pr-1">
+          <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-fg" title={inv.payLink} translate="no">
+            {inv.payLink}
+          </span>
+          <CopyButton value={inv.payLink} label="Copy pay link" />
+          <a
+            href={inv.payLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open the pay page in a new tab"
+            title="Open the pay page"
+            className="inline-flex size-8 items-center justify-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg"
+          >
+            <ExternalLink aria-hidden className="size-4" />
+          </a>
+        </div>
       </div>
     </Card>
   );

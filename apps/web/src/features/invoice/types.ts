@@ -1,55 +1,33 @@
-/** View model for the Invoice page: one-time addresses + "pay from any chain" quotes. */
+/** View model for the Invoice page: one-time accounts derived from the view key. */
+
+export type InvoiceStatus = 'checking' | 'open' | 'partial' | 'paid' | 'claimed';
 
 export interface Invoice {
   /** Derivation index i (r_i = H(k_view ‖ i)). */
   index: number;
   stealthAccount: string;
-  /** App link a payer can open, e.g. "https://…/#/pay?to=…&amount=…". */
+  /** App link a payer can open: "…/#/pay?to=<64hex>&amount=…&note=…". */
   payLink: string;
   /** Requested amount in yocto; null = any amount. */
   amountYocto: string | null;
   memo: string;
   createdAtMs: number;
-  status: 'open' | 'paid';
-  receivedYocto: string;
+  status: InvoiceStatus;
+  /** Live balance of the invoice account (null while unknown). */
+  receivedYocto: string | null;
+  /** Claim transaction, once claimed from the Inbox. */
+  claimTxHash: string | null;
 }
-
-export interface Asset {
-  /** 1Click asset id, e.g. "nep141:eth-0x…omft.near". */
-  id: string;
-  symbol: string;
-  chain: string;
-  name: string;
-}
-
-export interface DryQuote {
-  assetId: string;
-  /** Human-formatted strings exactly as the 1Click API returns them. */
-  amountInFormatted: string;
-  amountOutFormatted: string;
-  timeEstimateSec: number;
-  /** ISO timestamp the quote was produced. */
-  quotedAt: string;
-}
-
-export type QuoteState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'ready'; quote: DryQuote }
-  | { status: 'error'; message: string };
 
 export interface InvoiceModel {
   hasIdentity: boolean;
   invoices: Invoice[];
   /** The invoice being shown (latest created / selected). */
   current: Invoice | null;
-  creating: boolean;
-  create(input: { amount: string; memo: string }): void;
+  /** Returns an error message, or null when created. */
+  create(input: { amount: string; memo: string }): string | null;
   select(index: number): void;
-
-  assets: Asset[];
-  selectedAssetId: string | null;
-  selectAsset(id: string): void;
-  quote: QuoteState;
-  requestQuote(): void;
+  /** Error from the last balance read, if any. */
+  balanceError: string | null;
+  refresh(): void;
 }

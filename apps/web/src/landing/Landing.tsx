@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { SiteHeader } from './SiteHeader';
 import { Hero } from './Hero';
-import { ClosingCta, HowItWorks, PrivacyHonest, SiteFooter, WhyNear } from './Sections';
+import { ClosingCta, HowItWorks, PrivacyHonest, SiteFooter, UseCases, WhyNear } from './Sections';
 
 export default function Landing() {
   useEffect(() => {
@@ -19,6 +19,7 @@ export default function Landing() {
         <Hero />
         <HowItWorks />
         <WhyNear />
+        <UseCases />
         <PrivacyHonest />
         <ClosingCta />
       </main>

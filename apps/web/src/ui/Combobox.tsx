@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { controlClasses } from './control-styles';
@@ -9,6 +9,8 @@ export interface ComboOption {
   /** Secondary text, e.g. the chain. Also searched. */
   detail?: string;
   leading?: ReactNode;
+  /** Consecutive options with the same group get one heading. Also searched. */
+  group?: string;
 }
 
 export interface ComboboxProps {
@@ -50,7 +52,7 @@ export function Combobox({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return options;
-    return options.filter((o) => `${o.label} ${o.detail ?? ''}`.toLowerCase().includes(q));
+    return options.filter((o) => `${o.label} ${o.detail ?? ''} ${o.group ?? ''}`.toLowerCase().includes(q));
   }, [options, query]);
 
   useEffect(() => {
@@ -141,8 +143,13 @@ export function Combobox({
       >
         {filtered.length === 0 && <li className="px-3 py-3 text-[14px] text-fg-faint">{emptyText}</li>}
         {filtered.map((o, i) => (
+          <Fragment key={o.value}>
+          {o.group && o.group !== filtered[i - 1]?.group && (
+            <li role="presentation" className="px-3 pb-1 pt-2.5 text-[10.5px] font-medium uppercase tracking-[0.16em] text-fg-faint">
+              {o.group}
+            </li>
+          )}
           <li
-            key={o.value}
             id={`${id}-opt-${i}`}
             data-index={i}
             role="option"
@@ -162,6 +169,7 @@ export function Combobox({
             </span>
             {o.value === value && <Check aria-hidden className="size-4 text-brass" />}
           </li>
+          </Fragment>
         ))}
       </ul>
     </div>

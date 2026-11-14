@@ -58,8 +58,8 @@ export function Hero() {
               that someone was paid&nbsp;— not&nbsp;who.
             </p>
             <div className="mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-              <ButtonLink to="/app" size="lg" iconRight={<ArrowRight aria-hidden className="size-4" />} className="max-sm:w-full">
-                Try the live demo
+              <ButtonLink to="/app/start" size="lg" iconRight={<ArrowRight aria-hidden className="size-4" />} className="max-sm:w-full">
+                See it work in a minute
               </ButtonLink>
               <SectionLink target="how" className={buttonClasses({ variant: 'ghost', size: 'lg', className: 'max-sm:w-full' })}>
                 How it works

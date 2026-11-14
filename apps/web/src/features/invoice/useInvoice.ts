@@ -1,82 +1,107 @@
 /**
- * Invoice data. PREVIEW IMPLEMENTATION — fixtures only. Replace with:
- * derive invoice i from the view key (no announcement), build the pay link,
- * and fetch a real NEAR Intents 1Click quote with `dry: true`; keep `InvoiceModel`.
+ * Invoices: deterministic one-time accounts from the view key (no
+ * announcement), a pay link, and paid/open status from the live balance.
  */
-import { useState } from 'react';
-import type { Invoice, InvoiceModel, QuoteState } from './types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { deriveInvoice } from '@perde/core';
+import { useAppState } from '../../state/context';
+import { errorText } from '../../lib/errors';
 import { parseNearToYocto } from '../../lib/near-format';
-import { fx, fxAssets, fxInvoices } from '../../preview-fixtures/data';
-import { previewDelay, usePreviewState } from '../../preview-fixtures/preview-state';
+import { useToast } from '../../ui/toast-context';
+import { fetchBalances, type LiveAccount } from '../../flows/scan';
+import { buildPayLink, NOTE_MAX } from '../pay/params';
+import type { Invoice, InvoiceModel, InvoiceStatus } from './types';
 
-const sampleQuote = (assetId: string): QuoteState => ({
-  status: 'ready',
-  quote: {
-    assetId,
-    amountInFormatted: '27.94',
-    amountOutFormatted: '12',
-    timeEstimateSec: 40,
-    quotedAt: new Date(Date.UTC(2026, 10, 14, 9, 31)).toISOString(),
-  },
-});
+const POLL_MS = 8000;
+
+export function statusOf(amountYocto: string | null, live: LiveAccount | undefined, claimed: boolean): InvoiceStatus {
+  if (claimed) return 'claimed';
+  if (!live) return 'checking';
+  if (!live.exists || live.balanceYocto === 0n) return 'open';
+  if (amountYocto !== null && live.balanceYocto < BigInt(amountYocto)) return 'partial';
+  return 'paid';
+}
 
 export function useInvoice(): InvoiceModel {
-  const preview = usePreviewState('/app/invoice');
-  const empty = preview === 'empty' || preview === 'no-identity';
-  const [invoices, setInvoices] = useState<Invoice[]>(() =>
-    empty ? [] : preview === 'paid' ? [{ ...fxInvoices[0], status: 'paid', receivedYocto: fxInvoices[0].amountYocto ?? '0' }, fxInvoices[1]] : fxInvoices,
-  );
-  const [currentIndex, setCurrentIndex] = useState<number | null>(empty ? null : (invoices[0]?.index ?? null));
-  const [creating, setCreating] = useState(false);
-  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(fxAssets[0].id);
-  const [quote, setQuote] = useState<QuoteState>(() =>
-    preview === 'quote-loading'
-      ? { status: 'loading' }
-      : preview === 'quote-error'
-        ? { status: 'error', message: '1Click returned 400: amount is below the minimum for this route.' }
-        : preview === 'open'
-          ? sampleQuote(fxAssets[0].id)
-          : { status: 'idle' },
-  );
+  const { state, dispatch, identity } = useAppState();
+  const toast = useToast();
+  const [selected, setSelected] = useState<number | null>(null);
+  const [live, setLive] = useState<Map<string, LiveAccount>>(new Map());
+  const [balanceError, setBalanceError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  const invoices: Invoice[] = useMemo(() => {
+    if (!identity) return [];
+    return state.invoices.map((r) => {
+      const stealth = deriveInvoice(identity.viewKeys, r.index).stealthAccountId;
+      const l = live.get(stealth);
+      const claim = state.claims[stealth];
+      return {
+        index: r.index,
+        stealthAccount: stealth,
+        payLink: buildPayLink(stealth, { amountYocto: r.amountYocto, note: r.note }),
+        amountYocto: r.amountYocto,
+        memo: r.note,
+        createdAtMs: r.createdAtMs,
+        status: statusOf(r.amountYocto, l, !!claim),
+        receivedYocto: claim ? claim.amountYocto : l ? l.balanceYocto.toString() : null,
+        claimTxHash: claim?.txHash ?? null,
+      };
+    });
+  }, [identity, state.invoices, state.claims, live]);
+
+  const current = invoices.find((i) => i.index === selected) ?? invoices[0] ?? null;
+  const accounts = invoices.map((i) => i.stealthAccount).join(',');
+
+  // All invoices once; afterwards the shown one while it is still waiting for money.
+  useEffect(() => {
+    if (!accounts) return;
+    let live = true;
+    fetchBalances(accounts.split(','))
+      .then((m) => {
+        if (!live) return;
+        setLive((prev) => new Map([...prev, ...m]));
+        setBalanceError(null);
+      })
+      .catch((e: unknown) => live && setBalanceError(errorText(e)));
+    return () => {
+      live = false;
+    };
+  }, [accounts, tick]);
+
+  const waiting = current && (current.status === 'open' || current.status === 'partial' || current.status === 'checking') ? current.stealthAccount : null;
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      fetchBalances([waiting])
+        .then((m) => setLive((prev) => new Map([...prev, ...m])))
+        .catch(() => undefined);
+    }, POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [waiting]);
+
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   return {
-    hasIdentity: preview !== 'no-identity',
+    hasIdentity: !!identity,
     invoices,
-    current: invoices.find((i) => i.index === currentIndex) ?? null,
-    creating,
+    current,
     create({ amount, memo }) {
-      setCreating(true);
-      const parsed = amount ? parseNearToYocto(amount) : null;
-      void previewDelay(600).then(() => {
-        const index = (invoices[0]?.index ?? -1) + 1;
-        const inv: Invoice = {
-          index,
-          stealthAccount: (fx.stealth[(index + 3) % fx.stealth.length] ?? fx.stealth[0]),
-          payLink: `https://perde.example/#/pay?to=${(fx.stealth[(index + 3) % fx.stealth.length] ?? fx.stealth[0])}${amount ? `&amount=${amount}` : ''}`,
-          amountYocto: parsed && parsed.ok ? parsed.yocto : null,
-          memo,
-          createdAtMs: Date.now(),
-          status: 'open',
-          receivedYocto: '0',
-        };
-        setInvoices((xs) => [inv, ...xs]);
-        setCurrentIndex(index);
-        setCreating(false);
-        setQuote({ status: 'idle' });
-      });
+      let amountYocto: string | null = null;
+      if (amount.trim()) {
+        const p = parseNearToYocto(amount);
+        if (!p.ok) return p.error;
+        if (p.yocto === '0') return 'Amount must be more than 0, or leave it empty for any amount.';
+        amountYocto = p.yocto;
+      }
+      dispatch({ type: 'invoice/add', invoice: { amountYocto, note: memo.trim().slice(0, NOTE_MAX), createdAtMs: Date.now() } });
+      setSelected(state.nextInvoiceIndex);
+      toast.show({ tone: 'success', title: `Invoice #${state.nextInvoiceIndex} created`, description: 'Share the pay link or QR code.' });
+      return null;
     },
-    select: setCurrentIndex,
-    assets: fxAssets,
-    selectedAssetId,
-    selectAsset(id) {
-      setSelectedAssetId(id);
-      setQuote({ status: 'idle' });
-    },
-    quote,
-    requestQuote() {
-      if (!selectedAssetId) return;
-      setQuote({ status: 'loading' });
-      void previewDelay(1100).then(() => setQuote(sampleQuote(selectedAssetId)));
-    },
+    select: setSelected,
+    balanceError,
+    refresh,
   };
 }

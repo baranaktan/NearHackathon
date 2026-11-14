@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ArrowDownToLine, RefreshCw } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowDownToLine, Globe, RefreshCw, RotateCcw } from 'lucide-react';
 import { PageHeader } from '../../app-shell/PageHeader';
 import { Card } from '../../ui/Card';
 import { Button, ButtonLink } from '../../ui/Button';
@@ -12,16 +12,31 @@ import { TxLink } from '../../ui/TxLink';
 import { Spinner } from '../../ui/Spinner';
 import { Amount } from '../../components/Amount';
 import { ChainViewButton, ChainViewSheet } from '../../components/ChainView';
+import type { ChainSubject } from '../../components/chain-evidence';
+import { cn } from '../../lib/cn';
 import { formatDateTime } from '../../lib/format-date';
 import { formatYocto, isImplicitAccount, isNamedAccount, truncateMiddle } from '../../lib/near-format';
 import { useInbox } from './useInbox';
-import type { FoundPayment, InboxModel, ScanState } from './types';
+import type { ClaimEstimate, ClaimMode, FoundPayment, InboxModel, ScanState } from './types';
+
+function subjectOf(p: FoundPayment): ChainSubject {
+  return {
+    kind: 'received',
+    stealthAccount: p.stealthAccount,
+    announcementIndex: p.announcementIndex,
+    invoiceIndex: p.invoiceIndex,
+    amountYocto: p.amountYocto,
+    claim: p.claimRecord,
+    sentRecord: p.sentRecord,
+  };
+}
 
 export default function InboxPage() {
   const m = useInbox();
   const [claiming, setClaiming] = useState<FoundPayment | null>(null);
+  const [chainFor, setChainFor] = useState<string | null>(null);
   const [chainOpen, setChainOpen] = useState(false);
-  const focus = m.payments.find((p) => p.claim.status === 'claimed') ?? m.payments[0] ?? null;
+  const focus = m.payments.find((p) => p.id === chainFor) ?? m.payments.find((p) => p.claim.status === 'claimed') ?? m.payments[0] ?? null;
 
   if (!m.hasIdentity)
     return (
@@ -42,6 +57,7 @@ export default function InboxPage() {
       </>
     );
 
+  const scanning = m.scan.status === 'scanning';
   return (
     <>
       <PageHeader
@@ -50,14 +66,13 @@ export default function InboxPage() {
         description="Your browser scans public announcements with your view key. Only you can recognise which ones are yours."
         actions={
           <>
-            <ChainViewButton onClick={() => setChainOpen(true)} />
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<RefreshCw aria-hidden className="size-4" />}
-              onClick={m.rescan}
-              disabled={m.scan.status === 'scanning'}
-            >
+            <ChainViewButton
+              onClick={() => {
+                setChainFor(null);
+                setChainOpen(true);
+              }}
+            />
+            <Button variant="secondary" size="sm" icon={<RefreshCw aria-hidden className="size-4" />} onClick={m.rescan} disabled={scanning}>
               Rescan
             </Button>
           </>
@@ -76,34 +91,40 @@ export default function InboxPage() {
         <h2 id="found-title" className="mb-3 text-[11px] font-medium uppercase tracking-[0.16em] text-fg-faint">
           Found payments
         </h2>
-        {m.payments.length === 0 && m.scan.status === 'scanning' && <RowSkeletons />}
+        {m.payments.length === 0 && (scanning || m.scan.status === 'idle') && <RowSkeletons />}
         {m.payments.length === 0 && m.scan.status === 'done' && (
           <Card>
             <EmptyState
               title="Nothing behind the curtain yet"
               action={
                 <>
-                  <ButtonLink to="/app/receive" variant="secondary">
+                  <ButtonLink to="/app/send">Send yourself a test payment</ButtonLink>
+                  <ButtonLink to="/app/receive" variant="ghost">
                     Share your address
-                  </ButtonLink>
-                  <ButtonLink to="/app/send" variant="ghost">
-                    Send a test payment
                   </ButtonLink>
                 </>
               }
             >
-              No announcement matches your view key. New payments show up here after a rescan.
+              No announcement or invoice matches your keys yet. New payments show up here after a rescan.
             </EmptyState>
           </Card>
         )}
         {m.payments.length > 0 && (
           <ul className="overflow-hidden rounded-xl border border-line bg-surface">
             {m.payments.map((p) => (
-              <PaymentRow key={p.id} p={p} onClaim={() => setClaiming(p)} />
+              <PaymentRow
+                key={p.id}
+                p={p}
+                onClaim={() => setClaiming(p)}
+                onChain={() => {
+                  setChainFor(p.id);
+                  setChainOpen(true);
+                }}
+              />
             ))}
-            {m.scan.status === 'scanning' && (
+            {scanning && (
               <li className="flex items-center gap-2 border-t border-line px-5 py-4 text-[13px] text-fg-muted">
-                <Spinner size={14} /> Still scanning…
+                <Spinner size={14} /> Checking for new payments…
               </li>
             )}
           </ul>
@@ -116,98 +137,95 @@ export default function InboxPage() {
         open={chainOpen}
         onClose={() => setChainOpen(false)}
         yourRole="recipient"
-        observerRows={
-          focus
-            ? [
-                { id: 'in', ref: focus.announcementIndex !== null ? `ann. #${focus.announcementIndex}` : 'transfer', from: 'some-sender.testnet', to: truncateMiddle(focus.stealthAccount, 4, 4), amount: `${formatYocto(focus.amountYocto)} NEAR`, highlight: 'veiled' },
-                ...(focus.claim.status === 'claimed'
-                  ? [{ id: 'out', ref: truncateMiddle(focus.claim.txHash, 4, 4), from: truncateMiddle(focus.stealthAccount, 4, 4), to: focus.claim.destination, amount: `${formatYocto(focus.claim.claimedYocto)} NEAR`, highlight: 'exposed' as const }]
-                  : []),
-              ]
-            : []
-        }
-        observerNote={
-          focus?.claim.status === 'claimed' ? (
-            <>
-              The incoming payment is unlinkable — but the claim is a normal transfer, so it now publicly connects this stealth
-              account to <span className="font-mono text-fg">{focus.claim.destination}</span>.
-            </>
-          ) : (
-            <>Someone paid an account nobody has seen before. Nothing connects it to you until you move the funds.</>
-          )
-        }
+        subject={focus ? subjectOf(focus) : null}
+        emptyHint="No payment found yet. Send yourself one, rescan, and the chain view shows its real announcement."
         yourView={[
-          { label: 'These payments are yours', value: `${m.payments.length} found with your view key` },
-          { label: 'Waiting to be claimed', value: <Amount yocto={m.unclaimedYocto} /> },
-          { label: 'Who can spend them', value: 'Only you: each account’s key is derived from your spend key, in this browser.' },
+          { label: 'This payment is yours', value: focus ? `Recognised with your view key${focus.source === 'invoice' ? ` (invoice #${focus.invoiceIndex})` : ''}` : '—' },
+          { label: 'Waiting to be claimed (all payments)', value: <Amount yocto={m.unclaimedYocto} /> },
+          { label: 'Who can spend it', value: 'Only you: the account’s key is derived from your spend key, in this browser.' },
         ]}
       />
     </>
   );
 }
 
-function scanLine(scan: ScanState): string {
+function scanLine(scan: ScanState, cursor: number): string {
   switch (scan.status) {
     case 'scanning':
-      return scan.total ? `Scanning ${scan.scanned} of ${scan.total} announcements…` : `Scanning… ${scan.scanned} read`;
+      return scan.total !== null ? `Reading new announcements: ${scan.scanned} of ${scan.total}…` : 'Counting announcements…';
     case 'done':
-      return `Scanned ${scan.scanned} announcements · ${formatDateTime(scan.finishedAtMs)}`;
+      return `${cursor} announcements checked · ${formatDateTime(scan.finishedAtMs)}`;
     case 'error':
       return 'Scan stopped';
     default:
-      return 'Not scanned yet';
+      return 'Preparing to scan…';
   }
 }
 
 function Summary({ m }: { m: InboxModel }) {
   const s = m.scan;
-  const pct = s.status === 'scanning' && s.total ? Math.round((s.scanned / s.total) * 100) : s.status === 'done' ? 100 : 0;
+  const pct = s.status === 'scanning' && s.total ? Math.round((s.scanned / s.total) * 100) : s.status === 'done' ? 100 : s.status === 'scanning' && s.total === 0 ? 100 : 0;
   return (
     <Card className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
       <div className="min-w-0">
         <p className="text-[12px] font-medium text-fg-muted">Unclaimed</p>
         <Amount yocto={m.unclaimedYocto} size="xl" className="mt-1 text-fg" />
       </div>
-      <div className="min-w-0 sm:w-72">
-        <p className="flex items-center gap-2 text-[13px] text-fg-muted" role="status" aria-live="polite">
+      <div className="min-w-0 sm:w-80">
+        <p className="flex min-h-5 items-center gap-2 text-[13px] text-fg-muted" role="status" aria-live="polite">
           {s.status === 'scanning' && <Spinner size={13} />}
-          {scanLine(s)}
+          {scanLine(s, m.cursor)}
         </p>
-        <div
-          className="mt-2.5 h-1 overflow-hidden rounded-full bg-surface-3"
-          role="progressbar"
-          aria-label="Scan progress"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={pct}
-        >
+        <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-label="Scan progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
           <div className="h-full rounded-full bg-linear-to-r from-velvet-mid to-accent-text transition-[width] duration-500" style={{ width: `${pct}%` }} />
         </div>
+        <button
+          type="button"
+          onClick={m.rescanFromStart}
+          disabled={s.status === 'scanning'}
+          className="mt-2 inline-flex min-h-8 items-center gap-1.5 text-[12.5px] text-fg-faint underline decoration-line-strong underline-offset-4 hover:text-fg disabled:opacity-50"
+        >
+          <RotateCcw aria-hidden className="size-3" />
+          Rescan from the first announcement
+        </button>
       </div>
     </Card>
   );
 }
 
-function PaymentRow({ p, onClaim }: { p: FoundPayment; onClaim: () => void }) {
+function PaymentRow({ p, onClaim, onChain }: { p: FoundPayment; onClaim: () => void; onChain: () => void }) {
   const c = p.claim;
+  const empty = p.exists === false || (p.balanceYocto !== null && BigInt(p.balanceYocto) === 0n);
   return (
     <li className="grid gap-4 border-t border-line px-5 py-4.5 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-6">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Amount yocto={p.amountYocto} size="lg" className={c.status === 'claimed' ? 'text-fg-muted' : 'text-fg'} />
-          {p.source === 'invoice' ? <Badge tone="brass">Invoice</Badge> : <Badge>Announcement #{p.announcementIndex}</Badge>}
+          {p.source === 'invoice' ? <Badge tone="brass">Invoice #{p.invoiceIndex}</Badge> : <Badge>Announcement #{p.announcementIndex}</Badge>}
+          {p.note && <span className="min-w-0 truncate text-[13px] text-fg-muted">{p.note}</span>}
         </div>
         <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] text-fg-faint">
           <AddressChip value={p.stealthAccount} size="sm" explorer label="Stealth account" />
-          <span>{formatDateTime(p.timestampMs)}</span>
+          {p.timestampMs !== null && <span>{p.source === 'invoice' ? `invoice created ${formatDateTime(p.timestampMs)}` : formatDateTime(p.timestampMs)}</span>}
+          {p.balanceYocto !== null && c.status !== 'claimed' && !empty && BigInt(p.balanceYocto) !== BigInt(p.amountYocto) && (
+            <span>
+              balance <Amount yocto={p.balanceYocto} size="sm" />
+            </span>
+          )}
+          <button type="button" onClick={onChain} className="inline-flex min-h-7 items-center gap-1 underline decoration-line-strong underline-offset-4 hover:text-fg">
+            <Globe aria-hidden className="size-3" />
+            Chain view
+          </button>
         </div>
       </div>
       <div className="flex min-w-0 flex-col items-start gap-1.5 sm:items-end">
-        {c.status === 'unclaimed' && (
+        {c.status === 'unclaimed' && p.balanceYocto === null && <Skeleton className="h-9 w-24" />}
+        {c.status === 'unclaimed' && p.balanceYocto !== null && !empty && (
           <Button size="sm" onClick={onClaim}>
             Claim to…
           </Button>
         )}
+        {c.status === 'unclaimed' && empty && <Badge>{p.exists === false ? 'Already emptied' : 'Empty'}</Badge>}
         {c.status === 'claiming' && (
           <p className="flex items-center gap-2 text-[13px] text-fg-muted" role="status">
             <Spinner size={14} /> Claiming to <span className="font-mono text-fg">{truncateMiddle(c.destination, 10, 6)}</span>
@@ -216,14 +234,14 @@ function PaymentRow({ p, onClaim }: { p: FoundPayment; onClaim: () => void }) {
         {c.status === 'claimed' && (
           <>
             <Badge tone="success" dot>
-              Claimed to {truncateMiddle(c.destination, 14, 8)}
+              Claimed {formatYocto(c.claimedYocto)} to {truncateMiddle(c.destination, 12, 6)}
             </Badge>
             <TxLink hash={c.txHash} label="Claim tx" />
           </>
         )}
         {c.status === 'error' && (
           <>
-            <p className="text-[13px] text-danger" role="alert">
+            <p className="max-w-xs text-[13px] text-danger sm:text-right" role="alert">
               {c.message}
             </p>
             <Button size="sm" variant="secondary" onClick={onClaim}>
@@ -254,25 +272,53 @@ function RowSkeletons() {
 
 function ClaimDialog({ m, payment, onClose }: { m: InboxModel; payment: FoundPayment | null; onClose: () => void }) {
   const [dest, setDest] = useState('');
+  const [mode, setMode] = useState<ClaimMode>('deleteAccount');
+  const [est, setEst] = useState<{ key: string; value: ClaimEstimate }>({ key: '', value: { status: 'idle' } });
   const trimmed = dest.trim();
   const valid = isNamedAccount(trimmed) || isImplicitAccount(trimmed);
+  const key = `${payment?.id ?? ''}|${trimmed}|${mode}`;
+
+  // Suggest the demo wallet when the dialog opens.
+  const [openedFor, setOpenedFor] = useState<string | null>(null);
+  if (payment && openedFor !== payment.id) {
+    setOpenedFor(payment.id);
+    setDest(m.destinationSuggestions[0] ?? '');
+    setMode('deleteAccount');
+  }
+
+  const { estimateClaim } = m;
+  useEffect(() => {
+    if (!payment || !valid) return;
+    let live = true;
+    const t = window.setTimeout(() => {
+      void estimateClaim(payment.id, trimmed, mode).then((value) => live && setEst({ key, value }));
+    }, 300);
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+    };
+  }, [payment, trimmed, mode, valid, key, estimateClaim]);
+
+  const e: ClaimEstimate = !valid ? { status: 'idle' } : est.key === key ? est.value : { status: 'loading' };
   const named = isNamedAccount(trimmed);
+  const ready = e.status === 'ready' && !e.blocker;
+
   return (
     <Dialog
       open={!!payment}
       onClose={onClose}
-      title={payment ? `Claim ${formatYocto(payment.balanceYocto)} NEAR` : 'Claim'}
-      description="Sweeps the stealth account to an account you choose. The stealth account signs and pays its own gas."
+      title={payment?.balanceYocto ? `Claim ${formatYocto(payment.balanceYocto)} NEAR` : 'Claim'}
+      description="Moves the funds out of the stealth account. Its key is derived in this browser; the account signs and pays its own gas."
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            disabled={!valid}
+            disabled={!ready}
             onClick={() => {
               if (!payment) return;
-              m.claim(payment.id, trimmed);
+              m.claim(payment.id, trimmed, mode);
               onClose();
             }}
           >
@@ -282,18 +328,12 @@ function ClaimDialog({ m, payment, onClose }: { m: InboxModel; payment: FoundPay
       }
     >
       <div className="space-y-5">
-        <Field
-          label="Destination account"
-          error={trimmed && !valid ? 'Enter a NEAR account id (name.testnet or 64-hex).' : undefined}
-          hint={m.claimFeeYocto ? `About ${formatYocto(m.claimFeeYocto, { maxFractionDigits: 5 })} NEAR of gas is deducted from the claimed amount.` : undefined}
-        >
-          {(p) => (
-            <Input {...p} mono value={dest} onChange={(e) => setDest(e.target.value)} placeholder="name.testnet" autoComplete="off" autoCapitalize="none" spellCheck={false} />
-          )}
+        <Field label="Destination account" error={trimmed && !valid ? 'Enter a NEAR account id (name.testnet or 64-hex).' : undefined}>
+          {(p) => <Input {...p} mono value={dest} onChange={(ev) => setDest(ev.target.value)} placeholder="name.testnet" autoComplete="off" autoCapitalize="none" spellCheck={false} />}
         </Field>
         {m.destinationSuggestions.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-[13px] text-fg-muted">
-            Suggestions:
+            Your demo wallet:
             {m.destinationSuggestions.map((s) => (
               <button
                 key={s}
@@ -306,9 +346,67 @@ function ClaimDialog({ m, payment, onClose }: { m: InboxModel; payment: FoundPay
             ))}
           </div>
         )}
-        {named && (
+
+        <fieldset>
+          <legend className="mb-2 text-[13px] font-medium text-fg">How to claim</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(
+              [
+                { v: 'deleteAccount', title: 'Full sweep', body: 'Deletes the stealth account and hands over everything. No dust left. Needs an existing destination.' },
+                { v: 'transfer', title: 'Transfer', body: 'Sends the balance minus a gas reserve; a tiny refund stays behind. Can create a new implicit account.' },
+              ] as const
+            ).map((o) => (
+              <label
+                key={o.v}
+                className={cn('flex cursor-pointer gap-3 rounded-lg border px-3.5 py-3', mode === o.v ? 'border-brass bg-brass/[0.06]' : 'border-line hover:border-line-strong')}
+              >
+                <input type="radio" name="claim-mode" value={o.v} checked={mode === o.v} onChange={() => setMode(o.v)} className="mt-1 accent-(--accent)" />
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-medium text-fg">{o.title}</span>
+                  <span className="mt-0.5 block text-[12.5px] leading-snug text-fg-muted">{o.body}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <div className="min-h-[68px] rounded-lg border border-line bg-surface-2/50 px-4 py-3" aria-live="polite">
+          {e.status === 'idle' && <p className="text-[13px] text-fg-faint">Enter a destination to see the fee.</p>}
+          {e.status === 'loading' && (
+            <p className="flex items-center gap-2 text-[13px] text-fg-muted">
+              <Spinner size={14} /> Estimating from the live gas price…
+            </p>
+          )}
+          {e.status === 'error' && <p className="text-[13px] text-danger">{e.message}</p>}
+          {e.status === 'ready' && (
+            <div className="space-y-1 text-[13px]">
+              {e.blocker ? (
+                <p className="text-danger">{e.blocker}</p>
+              ) : (
+                <>
+                  <p className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-fg-muted">Destination receives about</span>
+                    <Amount yocto={e.receiveYocto} />
+                  </p>
+                  <p className="flex flex-wrap items-baseline justify-between gap-2 text-fg-faint">
+                    <span>{e.leavesDust ? 'Gas reserve kept back (most returns as dust)' : 'Network fee, at most'}</span>
+                    <Amount yocto={e.feeYocto} maxFractionDigits={6} size="sm" />
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {named ? (
           <Callout tone="warn" title="This links the payment to that account">
-            A claim is a public transfer. To keep the curtain closed, claim to a fresh account or keep the funds where they are.
+            A claim is a public transaction. Anyone can now see that this stealth account paid <span className="font-mono">{trimmed}</span>. To keep the curtain
+            closed, claim to a brand-new implicit account you control (transfer mode creates it) or leave the funds where they are.
+          </Callout>
+        ) : (
+          <Callout tone="info">
+            Claiming to a fresh 64-hex implicit account you control keeps the payment unlinked from your named accounts. Creating it costs about 0.007 NEAR of
+            the claimed amount.
           </Callout>
         )}
       </div>

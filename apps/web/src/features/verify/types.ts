@@ -5,7 +5,8 @@ export interface VerifyCheck {
   label: string;
   /** What exactly was compared, shown in mono. */
   detail: string;
-  status: 'pass' | 'fail' | 'skipped';
+  /** "info" = context that is not pass/fail (e.g. the current balance). */
+  status: 'pass' | 'fail' | 'skipped' | 'info';
 }
 
 export interface ReceiptSummary {
@@ -22,7 +23,9 @@ export type VerifyState =
   | { status: 'verified'; summary: ReceiptSummary; checks: VerifyCheck[] }
   | { status: 'failed'; summary: ReceiptSummary | null; reason: string; checks: VerifyCheck[] }
   /** Not a parseable receipt at all. */
-  | { status: 'invalid'; message: string };
+  | { status: 'invalid'; message: string }
+  /** The chain could not be read. */
+  | { status: 'error'; message: string };
 
 export interface VerifyModel {
   input: string;

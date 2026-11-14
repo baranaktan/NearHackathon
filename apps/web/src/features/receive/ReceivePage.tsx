@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { AtSign, KeyRound, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowRight, AtSign, ExternalLink, KeyRound, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { PageHeader } from '../../app-shell/PageHeader';
 import { Card, CardHeader } from '../../ui/Card';
-import { Button } from '../../ui/Button';
+import { Button, ButtonLink } from '../../ui/Button';
+import { Spinner } from '../../ui/Spinner';
+import { formatYocto, truncateMiddle } from '../../lib/near-format';
 import { Field, Textarea } from '../../ui/Field';
 import { Callout, Skeleton } from '../../ui/Feedback';
 import { CopyButton } from '../../ui/CopyButton';
@@ -137,12 +139,83 @@ function SavePhrase({ words, onDone }: { words: string[]; onDone: () => void }) 
   );
 }
 
+function Registration({ m }: { m: ReceiveModel }) {
+  const reg = m.registration;
+  const deposit = formatYocto(m.registerDepositYocto, { maxFractionDigits: 4 });
+  if (reg.status === 'no-wallet')
+    return (
+      <Callout title="No account to sign with" action={<ButtonLink to="/app/settings" size="sm" variant="secondary">Get a demo wallet</ButtonLink>}>
+        Registering is a transaction from your demo wallet. Receiving by meta-address works without it.
+      </Callout>
+    );
+  if (reg.status === 'checking')
+    return (
+      <p className="flex items-center gap-2 text-[13.5px] text-fg-muted" role="status">
+        <Spinner size={14} /> Reading the contract…
+      </p>
+    );
+  if (reg.status === 'registered')
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge tone="success" dot>
+            Registered
+          </Badge>
+          <AddressChip value={reg.accountId} explorer label="Registered account" />
+          {reg.txHash && <TxLink hash={reg.txHash} />}
+        </div>
+        <p className="text-[13px] text-fg-faint">
+          Read from <span className="font-mono">get_meta_address</span> on the contract. Senders who type{' '}
+          <span className="font-mono text-fg-muted">{reg.accountId}</span> pay a fresh account derived from your meta-address.
+        </p>
+        <div>
+          <Button variant="ghost" size="sm" onClick={m.unregisterName}>
+            Unregister and refund the deposit
+          </Button>
+        </div>
+      </div>
+    );
+  const pending = reg.status === 'pending';
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-3 text-[14px] text-fg-muted">
+        <AtSign aria-hidden className="size-4 text-fg-faint" />
+        Register under
+        <AddressChip value={m.signerAccountId ?? ''} copy={false} label="Account" />
+      </div>
+      {reg.status === 'other' && (
+        <Callout tone="warn" title="This name points at another meta-address">
+          {reg.accountId} is registered to <span className="font-mono">{truncateMiddle(reg.metaAddress, 12, 6)}</span>, probably an earlier identity.
+          Registering again replaces it with this one.
+        </Callout>
+      )}
+      {reg.status === 'error' && (
+        <Callout tone="danger" role="alert" action={<Button size="sm" variant="secondary" onClick={m.retryRegistration}>Try again</Button>}>
+          {reg.message}
+        </Callout>
+      )}
+      <div>
+        <Button
+          variant="secondary"
+          onClick={m.registerName}
+          loading={pending}
+          loadingLabel={pending && reg.action === 'unregister' ? 'Unregistering' : 'Registering'}
+        >
+          {reg.status === 'other' ? 'Replace with this meta-address' : 'Register name'}
+        </Button>
+        <p className="mt-2 text-[12.5px] text-fg-faint">
+          Attaches {deposit} NEAR; the contract keeps the exact storage cost and refunds the rest. Unregistering refunds the storage.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function Ready({ identity, m }: { identity: Identity; m: ReceiveModel }) {
   const [showKey, setShowKey] = useState(false);
   const [phraseOpen, setPhraseOpen] = useState(false);
   const [phrase, setPhrase] = useState<string[] | null>(null);
   const [forgetOpen, setForgetOpen] = useState(false);
-  const reg = m.registration;
 
   return (
     <div className="space-y-5">
@@ -166,9 +239,30 @@ function Ready({ identity, m }: { identity: Identity; m: ReceiveModel }) {
             </p>
           </div>
           <div className="flex items-center justify-center border-t border-line bg-surface-2/50 p-6 md:border-l md:border-t-0">
-            <QR value={identity.metaAddress} size={168} label="QR code of your meta-address" caption="Scan to pay" />
+            <QR value={m.payLink ?? identity.metaAddress} size={168} label="QR code of your pay link" caption="Scan to open the pay page" />
           </div>
         </div>
+        {m.payLink && (
+          <div className="border-t border-line px-5 py-4 sm:px-7">
+            <p className="mb-1.5 text-[12.5px] text-fg-muted">Pay link — opens a payment form for this address</p>
+            <div className="flex min-w-0 items-center gap-1 rounded-md border border-line bg-surface-2/70 py-1 pl-3 pr-1">
+              <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-fg" title={m.payLink} translate="no">
+                {m.payLink}
+              </span>
+              <CopyButton value={m.payLink} label="Copy pay link" />
+              <a
+                href={m.payLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open the pay page in a new tab"
+                title="Open the pay page"
+                className="inline-flex size-8 items-center justify-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg"
+              >
+                <ExternalLink aria-hidden className="size-4" />
+              </a>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card>
@@ -177,32 +271,7 @@ function Ready({ identity, m }: { identity: Identity; m: ReceiveModel }) {
           title="Pay me at a NEAR name"
           description="Store your meta-address in the Perde contract under your account, so people can pay a readable name. Each payment still goes to a fresh account."
         />
-        {identity.registeredName ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge tone="success" dot>
-              Registered
-            </Badge>
-            <AddressChip value={identity.registeredName} explorer label="Registered account" />
-            {reg.status === 'done' && <TxLink hash={reg.txHash} />}
-          </div>
-        ) : m.signerAccountId ? (
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center gap-3 text-[14px] text-fg-muted">
-              <AtSign aria-hidden className="size-4 text-fg-faint" />
-              Register under
-              <AddressChip value={m.signerAccountId} copy={false} label="Account" />
-            </div>
-            {reg.status === 'error' && <Callout tone="danger" role="alert">{reg.message}</Callout>}
-            <div>
-              <Button variant="secondary" onClick={m.registerName} loading={reg.status === 'pending'} loadingLabel="Registering">
-                Register name
-              </Button>
-              <p className="mt-2 text-[12.5px] text-fg-faint">Requires a small storage deposit, refunded if you unregister.</p>
-            </div>
-          </div>
-        ) : (
-          <Callout title="No account to sign with">Create the demo accounts in Settings, or connect a wallet.</Callout>
-        )}
+        <Registration m={m} />
       </Card>
 
       <Card>
@@ -219,11 +288,16 @@ function Ready({ identity, m }: { identity: Identity; m: ReceiveModel }) {
             {showKey && <CopyButton value={identity.viewingKey} label="Copy viewing key" />}
           </div>
         </CurtainReveal>
-        {showKey && (
-          <Button variant="ghost" size="sm" className="mt-3" onClick={() => setShowKey(false)}>
-            Hide
-          </Button>
-        )}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {showKey && (
+            <Button variant="ghost" size="sm" onClick={() => setShowKey(false)}>
+              Hide
+            </Button>
+          )}
+          <ButtonLink to="/app/audit" variant="ghost" size="sm" iconRight={<ArrowRight aria-hidden className="size-3.5" />}>
+            See what an auditor sees
+          </ButtonLink>
+        </div>
       </Card>
 
       <Card tone="outline">
